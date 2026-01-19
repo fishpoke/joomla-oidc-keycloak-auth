@@ -1,25 +1,71 @@
-# CakePHP 3
+# =========================
+# OS / Editor
+# =========================
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+*.iml
 
-/vendor/*
-/config/app.php
+# =========================
+# Logs / temp
+# =========================
+*.log
+logs/
+tmp/
+temp/
+.cache/
+.cache-loader/
+*.tmp
 
-/tmp/cache/models/*
-!/tmp/cache/models/empty
-/tmp/cache/persistent/*
-!/tmp/cache/persistent/empty
-/tmp/cache/views/*
-!/tmp/cache/views/empty
-/tmp/sessions/*
-!/tmp/sessions/empty
-/tmp/tests/*
-!/tmp/tests/empty
+# =========================
+# PHP / Composer
+# =========================
+vendor/
+composer.lock
 
-/logs/*
-!/logs/empty
+# If you do build artifacts (zip releases)
+dist/
+build/
+*.zip
 
-# CakePHP 2
+# PHPUnit / PHPStan / Psalm caches
+.phpunit.result.cache
+.phpstan.neon
+.phpstan.neon.dist
+.psalm/
+.psalm.xml
+.psalm.xml.dist
 
-/app/tmp/*
-/app/Config/core.php
-/app/Config/database.php
-/vendors/*
+# =========================
+# Joomla (if you keep a local Joomla test site in repo - usually DON'T)
+# If you do, ignore runtime dirs:
+# =========================
+#administrator/cache/
+#cache/
+#logs/
+#tmp/
+
+# =========================
+# Env / Secrets
+# =========================
+.env
+.env.*
+*.env
+*.local.php
+*.secrets*
+secrets/
+certs/
+*.pem
+*.key
+
+# =========================
+# Docker / Local dev (optional)
+# =========================
+docker/.env
+docker/data/
+docker/db/
+data/
+db-data/
