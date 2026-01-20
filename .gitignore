@@ -1,71 +1,10 @@
-# =========================
-# OS / Editor
-# =========================
-.DS_Store
-Thumbs.db
-*.swp
-*.swo
-.idea/
-.vscode/
-*.iml
+# Infra secrets / local state
+infra/certs/*
+!infra/certs/.gitkeep
 
-# =========================
-# Logs / temp
-# =========================
+# local overrides (optional)
+infra/docker-compose.override.yml
+
+# logs / temp
 *.log
-logs/
-tmp/
-temp/
-.cache/
-.cache-loader/
-*.tmp
-
-# =========================
-# PHP / Composer
-# =========================
-vendor/
-composer.lock
-
-# If you do build artifacts (zip releases)
-dist/
-build/
-*.zip
-
-# PHPUnit / PHPStan / Psalm caches
-.phpunit.result.cache
-.phpstan.neon
-.phpstan.neon.dist
-.psalm/
-.psalm.xml
-.psalm.xml.dist
-
-# =========================
-# Joomla (if you keep a local Joomla test site in repo - usually DON'T)
-# If you do, ignore runtime dirs:
-# =========================
-#administrator/cache/
-#cache/
-#logs/
-#tmp/
-
-# =========================
-# Env / Secrets
-# =========================
-.env
-.env.*
-*.env
-*.local.php
-*.secrets*
-secrets/
-certs/
-*.pem
-*.key
-
-# =========================
-# Docker / Local dev (optional)
-# =========================
-docker/.env
-docker/data/
-docker/db/
-data/
-db-data/
+.DS_Store
