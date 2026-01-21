@@ -27,6 +27,8 @@ services:
     volumes:
       - joomla_data:/var/www/html
       - ./config/apache/ssl-proxy.conf:/etc/apache2/conf-enabled/ssl-proxy.conf:ro
+      - ../plugins/system/keycloak_oidc:/var/www/html/plugins/system/keycloak_oidc:rw
+
 
   keycloakdb:
     image: postgres:16
