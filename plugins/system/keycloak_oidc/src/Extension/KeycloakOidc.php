@@ -71,4 +71,29 @@ final class KeycloakOidc extends CMSPlugin
             error_log('[keycloak_oidc] ERROR in onAfterInitialise: ' . $e->getMessage());
         }
     }
+     public function onAfterRoute(): void
+    {
+        $app = Factory::getApplication();
+
+        // Nur im Administrator anzeigen
+        if (!$app->isClient('administrator')) {
+            return;
+        }
+
+        // Optional: nur wenn Plugin-Param debug=1 gesetzt ist
+        $debug = (bool) $this->params->get('debug', 1);
+        if (!$debug) {
+            return;
+        }
+
+        // Nur einmal pro Session, sonst nervt es
+        $session = $app->getSession();
+        if ($session->get('kc_oidc_notice_shown', false)) {
+            return;
+        }
+        $session->set('kc_oidc_notice_shown', true);
+
+        $app->enqueueMessage('✅ Keycloak OIDC Plugin geladen (Smoke-Test)', 'notice');
+    }
+    
 }
