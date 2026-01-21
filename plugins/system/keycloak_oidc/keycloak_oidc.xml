@@ -10,4 +10,23 @@
     <folder>src</folder>
     <folder>services</folder>
   </files>
+
+  <config>
+    <fields name="params">
+      <fieldset name="basic" label="Basic">
+        <field
+          name="debug"
+          type="radio"
+          default="0"
+          label="Debug logging"
+          description="Enable debug logging for the Keycloak OIDC plugin."
+        >
+          <option value="0">Disabled</option>
+          <option value="1">Enabled</option>
+        </field>
+      </fieldset>
+    </fields>
+  </config>
+
+
 </extension>
