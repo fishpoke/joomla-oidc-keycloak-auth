@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<extension type="plugin" group="system" method="upgrade">
+  <name>plg_system_keycloak_oidc</name>
+  <version>0.1.0</version>
+  <description>Keycloak OIDC System Plugin</description>
+
+  <namespace path="src">Fishpoke\Plugin\System\KeycloakOidc</namespace>
+
+  <files>
+    <folder>src</folder>
+    <folder>services</folder>
+  </files>
+</extension>
