@@ -7,6 +7,7 @@
   <namespace path="src">Fishpoke\Plugin\System\KeycloakOidc</namespace>
 
   <files>
+    <filename plugin="keycloak_oidc">keycloak_oidc.php</filename>
     <folder>src</folder>
     <folder>services</folder>
   </files>
@@ -21,6 +22,148 @@
           default="0"
           label="Debug logging"
           description="Enable debug logging for the Keycloak OIDC plugin."
+        >
+          <option value="0">Disabled</option>
+          <option value="1">Enabled</option>
+        </field>
+      </fieldset>
+      <fieldset name="oidc" label="OIDC">
+        <field
+          name="issuer"
+          type="text"
+          label="Issuer"
+          description="Keycloak realm issuer URL. Example: https://keycloak.local/realms/&lt;realm&gt;"
+        />
+        <field
+          name="keycloak_internal_base"
+          type="text"
+          label="Keycloak internal base URL"
+          description="Optional internal Keycloak base URL for server-to-server requests (e.g. http://keycloak:8080). Leave empty to use the issuer host directly."
+        />
+        <field
+          name="client_id"
+          type="text"
+          label="Client ID"
+          description="OIDC client_id as configured in Keycloak."
+        />
+        <field
+          name="client_secret"
+          type="password"
+          label="Client Secret"
+          description="OIDC client_secret as configured in Keycloak. Do not paste this anywhere else."
+        />
+        <field
+          name="scopes"
+          type="text"
+          default="openid profile email"
+          label="Scopes"
+          description="Space-separated list of scopes. Default: openid profile email"
+        />
+        <field
+          name="enable_frontend"
+          type="radio"
+          layout="joomla.form.field.radio.switcher"
+          default="1"
+          label="Enable frontend"
+          description="Enable Keycloak OIDC authentication flow for the site (frontend)."
+        >
+          <option value="0">Disabled</option>
+          <option value="1">Enabled</option>
+        </field>
+        <field
+          name="enable_backend"
+          type="radio"
+          layout="joomla.form.field.radio.switcher"
+          default="0"
+          label="Enable backend"
+          description="Enable Keycloak OIDC authentication flow for administrator (backend)."
+        >
+          <option value="0">Disabled</option>
+          <option value="1">Enabled</option>
+        </field>
+        <field
+          name="client_auth_in_header"
+          type="radio"
+          layout="joomla.form.field.radio.switcher"
+          default="1"
+          label="Client auth in header"
+          description="Send client credentials to the token endpoint using HTTP Basic Authorization header. Recommended."
+        >
+          <option value="0">Disabled</option>
+          <option value="1">Enabled</option>
+        </field>
+        <field
+          name="client_auth_in_body"
+          type="radio"
+          layout="joomla.form.field.radio.switcher"
+          default="0"
+          label="Client auth in body"
+          description="Send client credentials to the token endpoint in the POST body. Prefer header unless Keycloak is configured otherwise."
+        >
+          <option value="0">Disabled</option>
+          <option value="1">Enabled</option>
+        </field>
+      </fieldset>
+
+      <fieldset name="urls" label="URLs">
+        <field
+          name="joomla_public_base_site"
+          type="text"
+          label="Joomla public base (site)"
+          description="Optional public base URL used when generating redirect_uri for frontend login. Useful behind proxies or non-standard ports. Example: https://joomla.example.org:8443/"
+        />
+        <field
+          name="joomla_public_base_admin"
+          type="text"
+          label="Joomla public base (administrator)"
+          description="Optional public base URL used when generating redirect_uri for backend login. Example: https://joomla.example.org:8443/administrator/"
+        />
+      </fieldset>
+
+      <fieldset name="jit" label="JIT">
+        <field
+          name="jit_enabled"
+          type="radio"
+          layout="joomla.form.field.radio.switcher"
+          default="0"
+          label="JIT provisioning"
+          description="If enabled, users authenticated via Keycloak will be created in Joomla automatically when no matching email exists."
+        >
+          <option value="0">Disabled</option>
+          <option value="1">Enabled</option>
+        </field>
+        <field
+          name="jit_auto_link_existing"
+          type="radio"
+          layout="joomla.form.field.radio.switcher"
+          default="0"
+          label="Auto-link existing users"
+          description="If enabled, an existing Joomla user found by matching email will be linked to the Keycloak identity on first successful login when no link exists yet."
+        >
+          <option value="0">Disabled</option>
+          <option value="1">Enabled</option>
+        </field>
+        <field
+          name="jit_allowed_email_domains"
+          type="text"
+          default=""
+          label="Allowed email domains"
+          description="Optional comma-separated allowlist of email domains for JIT and auto-linking. Leave empty to allow any domain. Example: example.org,example.com"
+        />
+        <field
+          name="jit_group_ids"
+          type="text"
+          default="2"
+          label="JIT group IDs"
+          description="Comma-separated Joomla user group IDs assigned to newly created users. Default: 2 (Registered). Privileged groups (Administrator/Super Users) are blocked unless explicitly allowed."
+        />
+        <field
+          name="jit_allow_privileged"
+          type="radio"
+          layout="joomla.form.field.radio.switcher"
+          default="0"
+          label="Allow privileged groups"
+          description="If enabled, JIT can create users into privileged groups (Administrator/Super Users). Strongly discouraged."
         >
           <option value="0">Disabled</option>
           <option value="1">Enabled</option>

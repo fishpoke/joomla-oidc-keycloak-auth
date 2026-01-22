@@ -8,12 +8,19 @@ defined('_JEXEC') or die;
 use Joomla\CMS\Factory;
 use Joomla\CMS\Log\Log;
 use Joomla\CMS\Plugin\CMSPlugin;
+use Joomla\CMS\Uri\Uri;
+use Joomla\CMS\User\User;
 
 final class KeycloakOidc extends CMSPlugin
 {
     public function onAfterInitialise(): void
     {
         try {
+            $debugEnabled = (bool) $this->params->get('debug', 0);
+            if (!$debugEnabled) {
+                return;
+            }
+
             // Logger: explizit in administrator/logs schreiben
             Log::addLogger(
                 [
@@ -25,11 +32,6 @@ final class KeycloakOidc extends CMSPlugin
             );
 
             $app = Factory::getApplication();
-
-		$debugEnabled = (bool) $this->params->get('debug', 0);
-			if (!$debugEnabled) {
-			    return;
-			}
 
 
             $where = $app->isClient('administrator') ? 'admin' : 'site';
@@ -71,29 +73,947 @@ final class KeycloakOidc extends CMSPlugin
             error_log('[keycloak_oidc] ERROR in onAfterInitialise: ' . $e->getMessage());
         }
     }
-     public function onAfterRoute(): void
+    public function onAfterRoute(): void
+    {
+        try {
+            $app = Factory::getApplication();
+
+            $option = $app->input->getCmd('option');
+            $plugin = $app->input->getCmd('plugin');
+            $format = $app->input->getCmd('format', '');
+            $task = $app->input->getCmd('task');
+
+            if ($option === 'com_ajax' && $plugin === 'keycloak_oidc' && ($format === 'raw' || $format === '')) {
+                $this->handleAjaxTask($task);
+                return;
+            }
+
+            // Nur im Administrator anzeigen
+            if (!$app->isClient('administrator')) {
+                return;
+            }
+
+            // Optional: nur wenn Plugin-Param debug=1 gesetzt ist
+            $debug = (bool) $this->params->get('debug', 0);
+            if (!$debug) {
+                return;
+            }
+
+            // Nur einmal pro Session, sonst nervt es
+            $session = $app->getSession();
+            if ($session->get('kc_oidc_notice_shown', false)) {
+                return;
+            }
+            $session->set('kc_oidc_notice_shown', true);
+
+            $app->enqueueMessage('Keycloak OIDC Plugin loaded', 'notice');
+        } catch (\Throwable $e) {
+            error_log('[keycloak_oidc] ERROR in onAfterRoute: ' . $e->getMessage());
+        }
+    }
+
+    private function handleAjaxTask(string $task): void
     {
         $app = Factory::getApplication();
 
-        // Nur im Administrator anzeigen
-        if (!$app->isClient('administrator')) {
-            return;
+        if ($task === '') {
+            $code = $app->input->getString('code', '');
+            $state = $app->input->getString('state', '');
+            if ($code !== '' || $state !== '') {
+                $task = 'callback';
+            }
         }
 
-        // Optional: nur wenn Plugin-Param debug=1 gesetzt ist
-        $debug = (bool) $this->params->get('debug', 1);
-        if (!$debug) {
-            return;
+        $enabled = $app->isClient('administrator')
+            ? (bool) $this->params->get('enable_backend', 0)
+            : (bool) $this->params->get('enable_frontend', 1);
+
+        if (!$enabled) {
+            $this->respondText('Keycloak OIDC is disabled for this client.', 403);
         }
 
-        // Nur einmal pro Session, sonst nervt es
+        try {
+            if ($task === 'login') {
+                $this->handleLogin();
+                return;
+            }
+
+            if ($task === 'callback') {
+                $this->handleCallback();
+                return;
+            }
+
+            $this->respondText('Unknown task.', 400);
+        } catch (\Throwable $e) {
+            $this->auditLog('ERROR handleAjaxTask exception=' . get_class($e));
+            $this->respondText('Keycloak OIDC error.', 500);
+        }
+    }
+
+    private function handleLogin(): void
+    {
+        $app = Factory::getApplication();
         $session = $app->getSession();
-        if ($session->get('kc_oidc_notice_shown', false)) {
-            return;
-        }
-        $session->set('kc_oidc_notice_shown', true);
 
-        $app->enqueueMessage('✅ Keycloak OIDC Plugin geladen (Smoke-Test)', 'notice');
+        $issuer = trim((string) $this->params->get('issuer', ''));
+        $clientId = trim((string) $this->params->get('client_id', ''));
+        $scopes = trim((string) $this->params->get('scopes', 'openid profile email'));
+
+        if ($issuer === '' || $clientId === '') {
+            $this->respondText('Missing configuration: issuer and/or client_id.', 400);
+        }
+
+        $discovery = $this->getDiscovery($issuer);
+        $authorizationEndpoint = (string) ($discovery['authorization_endpoint'] ?? '');
+        if ($authorizationEndpoint === '') {
+            $this->respondText('OIDC discovery did not provide authorization_endpoint.', 500);
+        }
+
+        $state = $this->base64UrlEncode(random_bytes(32));
+        $nonce = $this->base64UrlEncode(random_bytes(32));
+
+        $session->set('kc_oidc_state', $state);
+        $session->set('kc_oidc_nonce', $nonce);
+        $session->set('kc_oidc_issuer', $issuer);
+        $session->set('kc_oidc_jit_attempted_for_state', null);
+
+        $redirectUri = $this->getRedirectUri();
+
+        $authUrl = $authorizationEndpoint;
+        $authUrl .= (str_contains($authUrl, '?') ? '&' : '?') . http_build_query([
+            'response_type' => 'code',
+            'client_id' => $clientId,
+            'redirect_uri' => $redirectUri,
+            'scope' => $scopes,
+            'state' => $state,
+            'nonce' => $nonce,
+        ]);
+
+        $app->redirect($authUrl);
+        $app->close();
+    }
+
+    private function handleCallback(): void
+    {
+        $app = Factory::getApplication();
+        $session = $app->getSession();
+
+        $issuer = (string) $session->get('kc_oidc_issuer', '');
+        $expectedState = (string) $session->get('kc_oidc_state', '');
+        $expectedNonce = (string) $session->get('kc_oidc_nonce', '');
+
+        $error = $app->input->getString('error', '');
+        if ($error !== '') {
+            $this->auditLog('OIDC_ERROR error=' . $error);
+            $this->respondText('OIDC login failed.', 400);
+        }
+
+        $state = $app->input->getString('state', '');
+        $code = $app->input->getString('code', '');
+
+        if ($issuer === '' || $expectedState === '' || $expectedNonce === '') {
+            $this->respondText('Missing session data (state/nonce). Start login again.', 400);
+        }
+
+        if (!hash_equals($expectedState, $state)) {
+            $this->respondText('Invalid state.', 400);
+        }
+
+        if ($code === '') {
+            $this->respondText('Missing code.', 400);
+        }
+
+        $discovery = $this->getDiscovery($issuer);
+        $tokenEndpoint = (string) ($discovery['token_endpoint'] ?? '');
+        $userinfoEndpoint = (string) ($discovery['userinfo_endpoint'] ?? '');
+
+        if ($tokenEndpoint === '' || $userinfoEndpoint === '') {
+            $this->respondText('OIDC discovery did not provide token/userinfo endpoint.', 500);
+        }
+
+        $clientId = trim((string) $this->params->get('client_id', ''));
+        $clientSecret = (string) $this->params->get('client_secret', '');
+        if ($clientId === '') {
+            $this->respondText('Missing configuration: client_id.', 400);
+        }
+
+        $redirectUri = $this->getRedirectUri();
+
+        $tokenRequest = [
+            'grant_type' => 'authorization_code',
+            'code' => $code,
+            'redirect_uri' => $redirectUri,
+            'client_id' => $clientId,
+        ];
+
+        $useAuthHeader = (bool) $this->params->get('client_auth_in_header', 1);
+        $useAuthBody = (bool) $this->params->get('client_auth_in_body', 0);
+
+        $headers = [
+            'Accept: application/json',
+            'Content-Type: application/x-www-form-urlencoded',
+        ];
+
+        if ($useAuthHeader && $clientSecret !== '') {
+            $headers[] = 'Authorization: Basic ' . base64_encode($clientId . ':' . $clientSecret);
+        }
+
+        if ($useAuthBody && $clientSecret !== '') {
+            $tokenRequest['client_id'] = $clientId;
+            $tokenRequest['client_secret'] = $clientSecret;
+        }
+
+        if (!$useAuthHeader && !$useAuthBody) {
+            $tokenRequest['client_id'] = $clientId;
+        }
+
+        $tokenResponse = $this->httpPostFormJson($tokenEndpoint, $tokenRequest, $headers);
+        $accessToken = (string) ($tokenResponse['access_token'] ?? '');
+        $idToken = (string) ($tokenResponse['id_token'] ?? '');
+
+        $claims = [];
+        if ($idToken !== '') {
+            $claims = $this->decodeJwtPayload($idToken);
+        }
+
+        if ($accessToken === '') {
+            $this->respondText('Token endpoint did not return access_token.', 500);
+        }
+
+        if ($idToken !== '') {
+            $nonce = (string) ($claims['nonce'] ?? '');
+            if ($nonce === '' || !hash_equals($expectedNonce, $nonce)) {
+                $this->respondText('Invalid nonce.', 400);
+            }
+        }
+
+        $userinfo = $this->httpGetJson($userinfoEndpoint, [
+            'Accept: application/json',
+            'Authorization: Bearer ' . $accessToken,
+        ]);
+
+        $issuerNorm = $this->normalizeIssuer($issuer);
+        $sub = (string) ($userinfo['sub'] ?? '');
+        if ($sub === '') {
+            $sub = (string) ($claims['sub'] ?? '');
+        }
+        if ($sub === '') {
+            $this->respondAuthDenied();
+        }
+
+        $email = $this->getReliableEmail($userinfo, $claims);
+        if ($email === '') {
+            $this->respondAuthDenied();
+        }
+
+        $emailVerifiedOkForJit = $this->isEmailVerifiedForJit($userinfo, $claims);
+
+        $jitEnabled = (bool) $this->params->get('jit_enabled', 0);
+        $jitAutoLinkExisting = (bool) $this->params->get('jit_auto_link_existing', 0);
+
+        $userId = $this->findJoomlaUserIdByEmail($email);
+        $user = $userId > 0 ? Factory::getUser($userId) : null;
+
+        if ($userId > 0 && $user !== null) {
+            $link = $this->getKeycloakLinkFromUser($user);
+            if ($link['issuer'] !== '' || $link['sub'] !== '') {
+                if ($link['issuer'] !== $issuerNorm || $link['sub'] !== $sub) {
+                    $this->auditLog('LOGIN_DENY link mismatch userId=' . (int) $userId . ' issuer=' . $issuerNorm . ' sub=' . $sub);
+                    $this->respondAuthDenied();
+                }
+            } else {
+                if (!$jitAutoLinkExisting) {
+                    $this->auditLog('LOGIN_DENY existing email not linked userId=' . (int) $userId . ' issuer=' . $issuerNorm . ' sub=' . $sub);
+                    $this->respondAuthDeniedContactAdmin();
+                }
+
+                if (!$emailVerifiedOkForJit) {
+                    $this->respondAuthDenied();
+                }
+
+                if (!$this->isEmailDomainAllowedForJit($email)) {
+                    $this->respondAuthDenied();
+                }
+
+                try {
+                    $this->persistKeycloakLinkOnUser($user, $issuerNorm, $sub, $email);
+                    $this->auditLog('LINK existing userId=' . (int) $userId . ' issuer=' . $issuerNorm . ' sub=' . $sub);
+                } catch (\Throwable $e) {
+                    $this->respondAuthDenied();
+                }
+            }
+        }
+
+        if (($userId <= 0 || $user === null) && $jitEnabled) {
+            if (!$emailVerifiedOkForJit) {
+                $this->respondAuthDenied();
+            }
+
+            if (!$this->isEmailDomainAllowedForJit($email)) {
+                $this->respondAuthDenied();
+            }
+
+            if (!$this->canAttemptJitProvisioningForState($expectedState)) {
+                $this->respondAuthDenied();
+            }
+
+            $groupIds = $this->getJitGroupIds();
+            if (!$this->jitGroupsAllowed($groupIds)) {
+                $this->respondAuthDenied();
+            }
+
+            $session->set('kc_oidc_jit_attempted_for_state', $expectedState);
+
+            try {
+                $userId = $this->createJoomlaUserFromUserinfo($userinfo, $email, $groupIds);
+            } catch (\Throwable $e) {
+                $this->respondAuthDenied();
+            }
+
+            $user = Factory::getUser($userId);
+            try {
+                $this->persistKeycloakLinkOnUser($user, $issuerNorm, $sub, $email);
+                $this->auditLog('JIT_CREATE userId=' . (int) $userId . ' issuer=' . $issuerNorm . ' sub=' . $sub);
+            } catch (\Throwable $e) {
+                $this->respondAuthDenied();
+            }
+        }
+
+        if ($userId <= 0 || $user === null) {
+            $this->respondAuthDenied();
+        }
+
+        if (method_exists($session, 'fork')) {
+            try {
+                $session->fork();
+            } catch (\Throwable $e) {
+            }
+        }
+
+        if (method_exists($app, 'loadIdentity')) {
+            $app->loadIdentity($user);
+        }
+
+        $session->set('user', $user);
+        $this->markSessionAuthenticated($userId);
+
+        $session->set('kc_oidc_state', null);
+        $session->set('kc_oidc_nonce', null);
+        $session->set('kc_oidc_jit_attempted_for_state', null);
+
+        $app->redirect(Uri::base());
+        $app->close();
+    }
+
+    private function respondAuthDenied(): void
+    {
+        $this->respondText('Login not permitted.', 403);
+    }
+
+    private function respondAuthDeniedContactAdmin(): void
+    {
+        $this->respondText('Login not permitted. Contact an administrator.', 403);
+    }
+
+    private function normalizeIssuer(string $issuer): string
+    {
+        return rtrim(trim($issuer), '/');
+    }
+
+    private function getReliableEmail(array $userinfo, array $claims): string
+    {
+        $emailUserinfo = trim((string) ($userinfo['email'] ?? ''));
+        $emailClaims = trim((string) ($claims['email'] ?? ''));
+
+        if ($emailUserinfo !== '' && $emailClaims !== '') {
+            if (strtolower($emailUserinfo) !== strtolower($emailClaims)) {
+                return '';
+            }
+        }
+
+        $email = $emailUserinfo !== '' ? $emailUserinfo : $emailClaims;
+        $email = strtolower(trim($email));
+        if ($email === '' || filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
+            return '';
+        }
+
+        return $email;
+    }
+
+    private function isEmailVerifiedForJit(array $userinfo, array $claims): bool
+    {
+        $hasUserinfo = array_key_exists('email_verified', $userinfo);
+        $hasClaims = array_key_exists('email_verified', $claims);
+
+        if (!$hasUserinfo && !$hasClaims) {
+            return true;
+        }
+
+        $valUserinfo = $hasUserinfo ? $userinfo['email_verified'] : null;
+        $valClaims = $hasClaims ? $claims['email_verified'] : null;
+
+        if (is_string($valUserinfo)) {
+            $valUserinfo = strtolower(trim($valUserinfo));
+            $valUserinfo = ($valUserinfo === 'false' || $valUserinfo === '0') ? false : (($valUserinfo === 'true' || $valUserinfo === '1') ? true : null);
+        }
+        if (is_string($valClaims)) {
+            $valClaims = strtolower(trim($valClaims));
+            $valClaims = ($valClaims === 'false' || $valClaims === '0') ? false : (($valClaims === 'true' || $valClaims === '1') ? true : null);
+        }
+
+        if ($valUserinfo === false || $valClaims === false) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private function getAllowedEmailDomainsForJit(): array
+    {
+        $raw = trim((string) $this->params->get('jit_allowed_email_domains', ''));
+        if ($raw === '') {
+            return [];
+        }
+
+        $parts = preg_split('/\s*,\s*/', $raw);
+        $domains = [];
+        if (is_array($parts)) {
+            foreach ($parts as $part) {
+                $d = strtolower(trim((string) $part));
+                if ($d !== '') {
+                    $domains[] = $d;
+                }
+            }
+        }
+
+        return array_values(array_unique($domains));
+    }
+
+    private function isEmailDomainAllowedForJit(string $email): bool
+    {
+        $allowed = $this->getAllowedEmailDomainsForJit();
+        if ($allowed === []) {
+            return true;
+        }
+
+        $at = strrpos($email, '@');
+        if ($at === false) {
+            return false;
+        }
+
+        $domain = strtolower(substr($email, $at + 1));
+        return in_array($domain, $allowed, true);
+    }
+
+    private function canAttemptJitProvisioningForState(string $expectedState): bool
+    {
+        $app = Factory::getApplication();
+        $session = $app->getSession();
+        $attemptedFor = (string) $session->get('kc_oidc_jit_attempted_for_state', '');
+        return $attemptedFor === '' || $attemptedFor !== $expectedState;
+    }
+
+    private function jitGroupsAllowed(array $groupIds): bool
+    {
+        $allowPrivileged = (bool) $this->params->get('jit_allow_privileged', 0);
+        if ($allowPrivileged) {
+            return true;
+        }
+
+        foreach ($groupIds as $gid) {
+            $id = (int) $gid;
+            if ($id === 7 || $id === 8) {
+                $this->auditLog('JIT_DENY privileged groups requested groupId=' . $id);
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function getKeycloakLinkFromUser(User $user): array
+    {
+        $params = $this->getUserParamsArray($user);
+        $kc = [];
+        if (isset($params['keycloak_oidc']) && is_array($params['keycloak_oidc'])) {
+            $kc = $params['keycloak_oidc'];
+        }
+
+        return [
+            'issuer' => isset($kc['issuer']) ? (string) $kc['issuer'] : '',
+            'sub' => isset($kc['sub']) ? (string) $kc['sub'] : '',
+        ];
+    }
+
+    private function persistKeycloakLinkOnUser(User $user, string $issuer, string $sub, string $email): void
+    {
+        $issuer = $this->normalizeIssuer($issuer);
+        $params = $this->getUserParamsArray($user);
+        $kc = [];
+        if (isset($params['keycloak_oidc']) && is_array($params['keycloak_oidc'])) {
+            $kc = $params['keycloak_oidc'];
+        }
+
+        $kc['issuer'] = $issuer;
+        $kc['sub'] = $sub;
+        $kc['email'] = $email;
+        $kc['last_login'] = gmdate('c');
+        $params['keycloak_oidc'] = $kc;
+
+        $user->params = json_encode($params);
+        if ($user->params === false) {
+            throw new \RuntimeException('Failed to encode params');
+        }
+
+        if (!$user->save()) {
+            throw new \RuntimeException('Failed to save user');
+        }
+    }
+
+    private function getUserParamsArray(User $user): array
+    {
+        $raw = $user->params;
+        if (is_string($raw)) {
+            $decoded = json_decode($raw, true);
+            return is_array($decoded) ? $decoded : [];
+        }
+
+        if (is_object($raw) && method_exists($raw, 'toArray')) {
+            $arr = $raw->toArray();
+            return is_array($arr) ? $arr : [];
+        }
+
+        return [];
+    }
+
+    private function auditLog(string $message): void
+    {
+        try {
+            Log::add($message, Log::INFO, 'keycloak_oidc');
+        } catch (\Throwable $e) {
+        }
+
+        error_log('[keycloak_oidc] ' . $message);
+    }
+
+    private function markSessionAuthenticated(int $userId): void
+    {
+        try {
+            $app = Factory::getApplication();
+            $session = $app->getSession();
+            $sessionId = method_exists($session, 'getId') ? (string) $session->getId() : '';
+            if ($sessionId === '') {
+                return;
+            }
+
+            $clientId = method_exists($app, 'getClientId') ? (int) $app->getClientId() : ($app->isClient('administrator') ? 1 : 0);
+
+            $db = Factory::getDbo();
+            $query = $db->getQuery(true)
+                ->update($db->quoteName('#__session'))
+                ->set($db->quoteName('userid') . ' = ' . (int) $userId)
+                ->set($db->quoteName('guest') . ' = 0')
+                ->where($db->quoteName('session_id') . ' = ' . $db->quote($sessionId))
+                ->where($db->quoteName('client_id') . ' = ' . (int) $clientId);
+            $db->setQuery($query);
+            $db->execute();
+        } catch (\Throwable $e) {
+        }
+    }
+
+    private function getRedirectUri(): string
+    {
+        $base = $this->getPublicBaseUrlForRedirect();
+        $uri = Uri::getInstance($base);
+        $uri->setPath(rtrim($uri->getPath(), '/') . '/index.php');
+        $uri->setQuery(http_build_query([
+            'option' => 'com_ajax',
+            'plugin' => 'keycloak_oidc',
+            'format' => 'raw',
+            'task' => 'callback',
+        ]));
+        return (string) $uri;
+    }
+
+    private function getPublicBaseUrlForRedirect(): string
+    {
+        $app = Factory::getApplication();
+        $paramName = $app->isClient('administrator') ? 'joomla_public_base_admin' : 'joomla_public_base_site';
+        $configured = trim((string) $this->params->get($paramName, ''));
+        if ($configured !== '') {
+            return rtrim($configured, '/') . '/';
+        }
+
+        return (string) Uri::base();
+    }
+
+    private function getDiscovery(string $issuer): array
+    {
+        $app = Factory::getApplication();
+        $session = $app->getSession();
+        $key = 'kc_oidc_discovery_' . md5($issuer);
+        $cached = $session->get($key, null);
+        if (is_array($cached) && isset($cached['authorization_endpoint'])) {
+            return $cached;
+        }
+
+        $issuer = rtrim($issuer, '/');
+        $url = $issuer . '/.well-known/openid-configuration';
+        $discovery = $this->httpGetJson($url, ['Accept: application/json']);
+        if (!is_array($discovery) || ($discovery['issuer'] ?? '') === '') {
+            throw new \RuntimeException('Invalid discovery response.');
+        }
+
+        $session->set($key, $discovery);
+        return $discovery;
+    }
+
+    private function httpGetJson(string $url, array $headers = []): array
+    {
+        $hostHeader = null;
+        $forwarded = null;
+        $url = $this->toInternalUrl($url, $hostHeader, $forwarded);
+        $result = $this->httpRequest('GET', $url, null, $headers, $hostHeader, $forwarded);
+        $json = json_decode($result, true);
+        if (!is_array($json)) {
+            throw new \RuntimeException('Invalid JSON response.');
+        }
+        return $json;
+    }
+
+    private function httpPostFormJson(string $url, array $data, array $headers = []): array
+    {
+        $hostHeader = null;
+        $forwarded = null;
+        $url = $this->toInternalUrl($url, $hostHeader, $forwarded);
+        $body = http_build_query($data);
+        $result = $this->httpRequest('POST', $url, $body, $headers, $hostHeader, $forwarded);
+        $json = json_decode($result, true);
+        if (!is_array($json)) {
+            throw new \RuntimeException('Invalid JSON response.');
+        }
+        return $json;
+    }
+
+    private function httpRequest(string $method, string $url, ?string $body, array $headers, ?string $hostHeader, ?array $forwarded): string
+    {
+        if (!function_exists('curl_init')) {
+            throw new \RuntimeException('PHP curl extension is required.');
+        }
+
+        $ch = curl_init();
+        if ($ch === false) {
+            throw new \RuntimeException('Failed to initialize HTTP client.');
+        }
+
+	    $responseHeaders = [];
+
+        $effectiveHeaders = $headers;
+        if ($hostHeader !== null && $hostHeader !== '') {
+            $effectiveHeaders[] = 'Host: ' . $hostHeader;
+        }
+
+        if (is_array($forwarded) && ($forwarded['host'] ?? '') !== '' && ($forwarded['proto'] ?? '') !== '') {
+            $effectiveHeaders[] = 'X-Forwarded-Proto: ' . (string) $forwarded['proto'];
+            $effectiveHeaders[] = 'X-Forwarded-Host: ' . (string) $forwarded['host'];
+            $effectiveHeaders[] = 'X-Forwarded-Port: ' . (string) ($forwarded['port'] ?? '');
+        }
+
+        curl_setopt($ch, CURLOPT_URL, $url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_CUSTOMREQUEST, $method);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, $effectiveHeaders);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 15);
+	    curl_setopt(
+	        $ch,
+	        CURLOPT_HEADERFUNCTION,
+	        static function ($ch, string $headerLine) use (&$responseHeaders): int {
+	            $len = strlen($headerLine);
+	            $parts = explode(':', $headerLine, 2);
+	            if (count($parts) === 2) {
+	                $name = strtolower(trim($parts[0]));
+	                $value = trim($parts[1]);
+	                if ($name !== '') {
+	                    $responseHeaders[$name][] = $value;
+	                }
+	            }
+	            return $len;
+	        }
+	    );
+
+        if ($method === 'POST') {
+            curl_setopt($ch, CURLOPT_POSTFIELDS, $body ?? '');
+        }
+
+        $response = curl_exec($ch);
+        if ($response === false) {
+            $err = curl_error($ch);
+            curl_close($ch);
+            throw new \RuntimeException('HTTP request failed: ' . $err);
+        }
+
+        $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        if ($status < 200 || $status >= 300) {
+            $details = '';
+            $decoded = json_decode((string) $response, true);
+            if (is_array($decoded)) {
+                $err = (string) ($decoded['error'] ?? '');
+                $desc = (string) ($decoded['error_description'] ?? '');
+                if ($err !== '' || $desc !== '') {
+                    $details = trim($err . ($desc !== '' ? (' - ' . $desc) : ''));
+                }
+            }
+
+	        if ($details === '' && isset($responseHeaders['www-authenticate'][0])) {
+	            $details = 'www-authenticate: ' . (string) $responseHeaders['www-authenticate'][0];
+	        }
+
+            if ($details === '') {
+                $snippet = trim((string) $response);
+                $snippet = preg_replace('/\s+/', ' ', $snippet);
+                if (is_string($snippet) && $snippet !== '') {
+                    $details = substr($snippet, 0, 300);
+                }
+            }
+
+            $safeUrl = $this->safeUrlForError($url);
+            throw new \RuntimeException(
+                'HTTP ' . $method . ' ' . $safeUrl . ' failed with status ' . $status . ($details !== '' ? (': ' . $details) : '') . '.'
+            );
+        }
+
+        return (string) $response;
+    }
+
+    private function safeUrlForError(string $url): string
+    {
+        $parts = parse_url($url);
+        if (!is_array($parts)) {
+            return $url;
+        }
+
+        $scheme = $parts['scheme'] ?? '';
+        $host = $parts['host'] ?? '';
+        $port = isset($parts['port']) ? (':' . (string) $parts['port']) : '';
+        $path = $parts['path'] ?? '';
+
+        if ($scheme === '' || $host === '') {
+            return $url;
+        }
+
+        return $scheme . '://' . $host . $port . $path;
+    }
+
+    private function toInternalUrl(string $url, ?string &$hostHeader, ?array &$forwarded): string
+    {
+        $hostHeader = null;
+        $forwarded = null;
+        $parts = parse_url($url);
+        if (!is_array($parts)) {
+            return $url;
+        }
+
+        $issuer = trim((string) $this->params->get('issuer', ''));
+        $issuerParts = $issuer !== '' ? parse_url(rtrim($issuer, '/')) : false;
+
+        $scheme = (string) ($parts['scheme'] ?? '');
+        $host = (string) ($parts['host'] ?? '');
+        if ($scheme === '' || $host === '') {
+            return $url;
+        }
+
+        $port = isset($parts['port']) ? (int) $parts['port'] : ($scheme === 'https' ? 443 : 80);
+        $isDefaultPort = ($scheme === 'https' && $port === 443) || ($scheme === 'http' && $port === 80);
+        $hostHeader = $host . ($isDefaultPort ? '' : (':' . (string) $port));
+        $forwarded = ['proto' => $scheme, 'host' => $host, 'port' => $port];
+
+        $internalBase = trim((string) $this->params->get('keycloak_internal_base', ''));
+        if ($internalBase === '') {
+            $hostHeader = null;
+            $forwarded = null;
+            return $url;
+        }
+
+        if (!is_array($issuerParts) || ($issuerParts['host'] ?? '') === '') {
+            $hostHeader = null;
+            $forwarded = null;
+            return $url;
+        }
+
+        $issuerHost = (string) ($issuerParts['host'] ?? '');
+        $issuerPort = isset($issuerParts['port']) ? (int) $issuerParts['port'] : ((($issuerParts['scheme'] ?? 'https') === 'https') ? 443 : 80);
+
+        if ($host !== $issuerHost) {
+            $hostHeader = null;
+            $forwarded = null;
+            return $url;
+        }
+
+        if ($port !== $issuerPort) {
+            $hostHeader = null;
+            $forwarded = null;
+            return $url;
+        }
+
+        $internalParts = parse_url(rtrim($internalBase, '/'));
+        if (!is_array($internalParts) || ($internalParts['scheme'] ?? '') === '' || ($internalParts['host'] ?? '') === '') {
+            $hostHeader = null;
+            $forwarded = null;
+            return $url;
+        }
+
+        $internalOrigin = (string) $internalParts['scheme'] . '://' . (string) $internalParts['host'] . (isset($internalParts['port']) ? (':' . (string) $internalParts['port']) : '');
+        $internalPrefix = (string) ($internalParts['path'] ?? '');
+
+        $path = (string) ($parts['path'] ?? '');
+        if ($internalPrefix !== '' && $internalPrefix !== '/') {
+            $path = rtrim($internalPrefix, '/') . '/' . ltrim($path, '/');
+        }
+
+        $query = isset($parts['query']) ? ('?' . (string) $parts['query']) : '';
+
+        return $internalOrigin . $path . $query;
+    }
+
+    private function createJoomlaUserFromUserinfo(array $userinfo, string $email, array $groupIds): int
+    {
+        $preferredUsername = trim((string) ($userinfo['preferred_username'] ?? ''));
+        if ($preferredUsername === '') {
+            $atPos = strpos($email, '@');
+            $preferredUsername = $atPos !== false ? substr($email, 0, $atPos) : $email;
+        }
+
+        $username = $this->generateUniqueUsername($preferredUsername);
+
+        $name = trim((string) ($userinfo['name'] ?? ''));
+        if ($name === '') {
+            $given = trim((string) ($userinfo['given_name'] ?? ''));
+            $family = trim((string) ($userinfo['family_name'] ?? ''));
+            $name = trim($given . ' ' . $family);
+        }
+        if ($name === '') {
+            $name = $username;
+        }
+
+        $password = $this->base64UrlEncode(random_bytes(24));
+
+        $data = [
+            'name' => $name,
+            'username' => $username,
+            'email' => $email,
+            'password' => $password,
+            'password2' => $password,
+            'groups' => $groupIds,
+            'block' => 0,
+        ];
+
+        $user = new User();
+        if (!$user->bind($data)) {
+            throw new \RuntimeException('Bind failed');
+        }
+
+        if (!$user->save()) {
+            throw new \RuntimeException('Save failed');
+        }
+
+        return (int) $user->id;
+    }
+
+    private function getJitGroupIds(): array
+    {
+        $raw = trim((string) $this->params->get('jit_group_ids', '2'));
+        if ($raw === '') {
+            return [2];
+        }
+
+        $parts = preg_split('/\s*,\s*/', $raw);
+        $ids = [];
+        if (is_array($parts)) {
+            foreach ($parts as $part) {
+                $id = (int) trim((string) $part);
+                if ($id > 0) {
+                    $ids[] = $id;
+                }
+            }
+        }
+
+        return $ids !== [] ? array_values(array_unique($ids)) : [2];
+    }
+
+    private function generateUniqueUsername(string $preferred): string
+    {
+        $base = trim($preferred);
+        $base = preg_replace('/[^a-zA-Z0-9._-]+/', '', $base);
+        if (!is_string($base) || $base === '') {
+            $base = 'user';
+        }
+
+        $candidate = $base;
+        $i = 2;
+        while ($this->usernameExists($candidate)) {
+            $candidate = $base . '-' . (string) $i;
+            $i++;
+            if ($i > 1000) {
+                throw new \RuntimeException('Unable to allocate username');
+            }
+        }
+
+        return $candidate;
+    }
+
+    private function usernameExists(string $username): bool
+    {
+        $db = Factory::getDbo();
+        $query = $db->getQuery(true)
+            ->select('COUNT(*)')
+            ->from($db->quoteName('#__users'))
+            ->where($db->quoteName('username') . ' = ' . $db->quote($username));
+        $db->setQuery($query);
+        return (int) $db->loadResult() > 0;
+    }
+
+    private function decodeJwtPayload(string $jwt): array
+    {
+        $parts = explode('.', $jwt);
+        if (count($parts) < 2) {
+            return [];
+        }
+
+        $payload = $parts[1];
+        $payload .= str_repeat('=', (4 - (strlen($payload) % 4)) % 4);
+        $json = base64_decode(strtr($payload, '-_', '+/'));
+        if ($json === false) {
+            return [];
+        }
+
+        $data = json_decode($json, true);
+        return is_array($data) ? $data : [];
+    }
+
+    private function base64UrlEncode(string $data): string
+    {
+        return rtrim(strtr(base64_encode($data), '+/', '-_'), '=');
+    }
+
+    private function findJoomlaUserIdByEmail(string $email): int
+    {
+        $db = Factory::getDbo();
+        $query = $db->getQuery(true)
+            ->select($db->quoteName('id'))
+            ->from($db->quoteName('#__users'))
+            ->where('LOWER(' . $db->quoteName('email') . ') = ' . $db->quote(strtolower($email)));
+        $db->setQuery($query);
+        return (int) $db->loadResult();
+    }
+
+    private function respondText(string $message, int $statusCode): void
+    {
+        http_response_code($statusCode);
+        header('Content-Type: text/plain; charset=utf-8');
+        echo $message;
+        Factory::getApplication()->close();
     }
     
 }
