@@ -22,10 +22,21 @@ final class KeycloakOidc extends CMSPlugin
             }
 
             // Logger: explizit in administrator/logs schreiben
+            $logPath = '';
+            try {
+                $config = Factory::getConfig();
+                $logPath = trim((string) $config->get('log_path', ''));
+            } catch (\Throwable $e) {
+                $logPath = '';
+            }
+            if ($logPath === '') {
+                $logPath = JPATH_ADMINISTRATOR . '/logs';
+            }
+
             Log::addLogger(
                 [
                     'text_file' => 'keycloak_oidc.php',
-                    'text_file_path' => JPATH_ADMINISTRATOR . '/logs',
+                    'text_file_path' => $logPath,
                 ],
                 Log::ALL,
                 ['keycloak_oidc']
@@ -145,9 +156,21 @@ final class KeycloakOidc extends CMSPlugin
 
             $this->respondText('Unknown task.', 400);
         } catch (\Throwable $e) {
-            $this->auditLog('ERROR handleAjaxTask exception=' . get_class($e));
+            $this->auditLog(
+                'ERROR handleAjaxTask exception=' . get_class($e) . ' message=' . $this->redactSecrets((string) $e->getMessage())
+            );
             $this->respondText('Keycloak OIDC error.', 500);
         }
+    }
+
+    private function redactSecrets(string $text): string
+    {
+        $text = preg_replace('/(access_token\s*[:=]\s*)([^\s,;]+)/i', '$1[REDACTED]', $text);
+        $text = preg_replace('/(refresh_token\s*[:=]\s*)([^\s,;]+)/i', '$1[REDACTED]', $text);
+        $text = preg_replace('/(id_token\s*[:=]\s*)([^\s,;]+)/i', '$1[REDACTED]', $text);
+        $text = preg_replace('/(client_secret\s*[:=]\s*)([^\s,;]+)/i', '$1[REDACTED]', $text);
+        $text = preg_replace('/(authorization:\s*bearer\s+)([^\s,;]+)/i', '$1[REDACTED]', $text);
+        return is_string($text) ? $text : '';
     }
 
     private function handleLogin(): void
@@ -176,6 +199,13 @@ final class KeycloakOidc extends CMSPlugin
         $session->set('kc_oidc_nonce', $nonce);
         $session->set('kc_oidc_issuer', $issuer);
         $session->set('kc_oidc_jit_attempted_for_state', null);
+
+        try {
+            if (method_exists($session, 'close')) {
+                $session->close();
+            }
+        } catch (\Throwable $e) {
+        }
 
         $redirectUri = $this->getRedirectUri();
 
@@ -212,6 +242,12 @@ final class KeycloakOidc extends CMSPlugin
         $code = $app->input->getString('code', '');
 
         if ($issuer === '' || $expectedState === '' || $expectedNonce === '') {
+            $this->auditLog(
+                'LOGIN_DENY missing session data issuer=' . $this->normalizeIssuer($issuer)
+                . ' has_issuer=' . ($issuer !== '' ? '1' : '0')
+                . ' has_state=' . ($expectedState !== '' ? '1' : '0')
+                . ' has_nonce=' . ($expectedNonce !== '' ? '1' : '0')
+            );
             $this->respondText('Missing session data (state/nonce). Start login again.', 400);
         }
 
@@ -298,15 +334,34 @@ final class KeycloakOidc extends CMSPlugin
             $sub = (string) ($claims['sub'] ?? '');
         }
         if ($sub === '') {
+            $this->auditLog('LOGIN_DENY missing sub issuer=' . $issuerNorm);
             $this->respondAuthDenied();
         }
 
-        $email = $this->getReliableEmail($userinfo, $claims);
+        [$email, $emailReason] = $this->getReliableEmailWithReason($userinfo, $claims);
         if ($email === '') {
+            $extra = '';
+            if ($emailReason === 'mismatch') {
+                $u = strtolower(trim((string) ($userinfo['email'] ?? '')));
+                $c = strtolower(trim((string) ($claims['email'] ?? '')));
+                if ($u !== '' && $c !== '') {
+                    $extra = ' fp_userinfo=' . $this->emailFingerprint($u) . ' fp_id_token=' . $this->emailFingerprint($c);
+                }
+            }
+
+            $this->auditLog('LOGIN_DENY email invalid issuer=' . $issuerNorm . ' sub=' . $sub . ' reason=' . $emailReason . $extra);
             $this->respondAuthDenied();
         }
 
         $emailVerifiedOkForJit = $this->isEmailVerifiedForJit($userinfo, $claims);
+
+        $this->auditLog(
+            'EMAIL_CLAIM issuer=' . $issuerNorm
+            . ' sub=' . $sub
+            . ' src=' . $emailReason
+            . ' fp=' . $this->emailFingerprint($email)
+            . ' email_verified=' . ($emailVerifiedOkForJit ? 'true' : 'false')
+        );
 
         $jitEnabled = (bool) $this->params->get('jit_enabled', 0);
         $jitAutoLinkExisting = (bool) $this->params->get('jit_auto_link_existing', 0);
@@ -323,15 +378,35 @@ final class KeycloakOidc extends CMSPlugin
                 }
             } else {
                 if (!$jitAutoLinkExisting) {
-                    $this->auditLog('LOGIN_DENY existing email not linked userId=' . (int) $userId . ' issuer=' . $issuerNorm . ' sub=' . $sub);
+                    $this->auditLog(
+                        'LOGIN_DENY existing email not linked userId=' . (int) $userId
+                        . ' issuer=' . $issuerNorm
+                        . ' sub=' . $sub
+                        . ' email_fp=' . $this->emailFingerprint($email)
+                        . ' email_src=' . $emailReason
+                    );
                     $this->respondAuthDeniedContactAdmin();
                 }
 
                 if (!$emailVerifiedOkForJit) {
-                    $this->respondAuthDenied();
+                    $this->auditLog(
+                        'LOGIN_DENY email not verified for auto-link userId=' . (int) $userId
+                        . ' issuer=' . $issuerNorm
+                        . ' sub=' . $sub
+                        . ' email_fp=' . $this->emailFingerprint($email)
+                        . ' email_src=' . $emailReason
+                    );
+                    $this->respondAuthDeniedEmailVerificationRequired();
                 }
 
                 if (!$this->isEmailDomainAllowedForJit($email)) {
+                    $this->auditLog(
+                        'LOGIN_DENY email domain not allowed for auto-link userId=' . (int) $userId
+                        . ' issuer=' . $issuerNorm
+                        . ' sub=' . $sub
+                        . ' email_fp=' . $this->emailFingerprint($email)
+                        . ' email_src=' . $emailReason
+                    );
                     $this->respondAuthDenied();
                 }
 
@@ -339,6 +414,13 @@ final class KeycloakOidc extends CMSPlugin
                     $this->persistKeycloakLinkOnUser($user, $issuerNorm, $sub, $email);
                     $this->auditLog('LINK existing userId=' . (int) $userId . ' issuer=' . $issuerNorm . ' sub=' . $sub);
                 } catch (\Throwable $e) {
+                    $this->auditLog(
+                        'LOGIN_DENY persist link failed userId=' . (int) $userId
+                        . ' issuer=' . $issuerNorm
+                        . ' sub=' . $sub
+                        . ' exception=' . get_class($e)
+                        . ' reason=' . $this->redactSecrets((string) $e->getMessage())
+                    );
                     $this->respondAuthDenied();
                 }
             }
@@ -346,19 +428,33 @@ final class KeycloakOidc extends CMSPlugin
 
         if (($userId <= 0 || $user === null) && $jitEnabled) {
             if (!$emailVerifiedOkForJit) {
-                $this->respondAuthDenied();
+                $this->auditLog(
+                    'LOGIN_DENY email not verified for JIT issuer=' . $issuerNorm
+                    . ' sub=' . $sub
+                    . ' email_fp=' . $this->emailFingerprint($email)
+                    . ' email_src=' . $emailReason
+                );
+                $this->respondAuthDeniedEmailVerificationRequired();
             }
 
             if (!$this->isEmailDomainAllowedForJit($email)) {
+                $this->auditLog(
+                    'LOGIN_DENY email domain not allowed for JIT issuer=' . $issuerNorm
+                    . ' sub=' . $sub
+                    . ' email_fp=' . $this->emailFingerprint($email)
+                    . ' email_src=' . $emailReason
+                );
                 $this->respondAuthDenied();
             }
 
             if (!$this->canAttemptJitProvisioningForState($expectedState)) {
+                $this->auditLog('LOGIN_DENY JIT rate limited issuer=' . $issuerNorm . ' sub=' . $sub);
                 $this->respondAuthDenied();
             }
 
             $groupIds = $this->getJitGroupIds();
             if (!$this->jitGroupsAllowed($groupIds)) {
+                $this->auditLog('LOGIN_DENY JIT groups not allowed issuer=' . $issuerNorm . ' sub=' . $sub);
                 $this->respondAuthDenied();
             }
 
@@ -367,6 +463,7 @@ final class KeycloakOidc extends CMSPlugin
             try {
                 $userId = $this->createJoomlaUserFromUserinfo($userinfo, $email, $groupIds);
             } catch (\Throwable $e) {
+                $this->auditLog('LOGIN_DENY JIT create failed issuer=' . $issuerNorm . ' sub=' . $sub . ' exception=' . get_class($e));
                 $this->respondAuthDenied();
             }
 
@@ -375,11 +472,21 @@ final class KeycloakOidc extends CMSPlugin
                 $this->persistKeycloakLinkOnUser($user, $issuerNorm, $sub, $email);
                 $this->auditLog('JIT_CREATE userId=' . (int) $userId . ' issuer=' . $issuerNorm . ' sub=' . $sub);
             } catch (\Throwable $e) {
+                $this->auditLog(
+                    'LOGIN_DENY JIT persist link failed userId=' . (int) $userId
+                    . ' issuer=' . $issuerNorm
+                    . ' sub=' . $sub
+                    . ' exception=' . get_class($e)
+                    . ' reason=' . $this->redactSecrets((string) $e->getMessage())
+                );
                 $this->respondAuthDenied();
             }
         }
 
         if ($userId <= 0 || $user === null) {
+            if (!$jitEnabled) {
+                $this->auditLog('LOGIN_DENY no matching user and JIT disabled issuer=' . $issuerNorm . ' sub=' . $sub);
+            }
             $this->respondAuthDenied();
         }
 
@@ -415,6 +522,18 @@ final class KeycloakOidc extends CMSPlugin
         $this->respondText('Login not permitted. Contact an administrator.', 403);
     }
 
+    private function respondAuthDeniedEmailVerificationRequired(): void
+    {
+        $app = Factory::getApplication();
+        try {
+            $app->enqueueMessage('Bitte E‑Mail-Adresse in Keycloak verifizieren / Support kontaktieren', 'warning');
+        } catch (\Throwable $e) {
+        }
+
+        $app->redirect(Uri::base());
+        $app->close();
+    }
+
     private function normalizeIssuer(string $issuer): string
     {
         return rtrim(trim($issuer), '/');
@@ -440,8 +559,57 @@ final class KeycloakOidc extends CMSPlugin
         return $email;
     }
 
+    private function getReliableEmailWithReason(array $userinfo, array $claims): array
+    {
+        $emailUserinfo = trim((string) ($userinfo['email'] ?? ''));
+        $emailClaims = trim((string) ($claims['email'] ?? ''));
+
+        if ($emailUserinfo === '' && $emailClaims === '') {
+            return ['', 'missing'];
+        }
+
+        if ($emailUserinfo !== '' && $emailClaims !== '') {
+            if (strtolower($emailUserinfo) !== strtolower($emailClaims)) {
+                return ['', 'mismatch'];
+            }
+        }
+
+        $email = $emailUserinfo !== '' ? $emailUserinfo : $emailClaims;
+        $email = strtolower(trim($email));
+        if ($email === '') {
+            return ['', 'empty'];
+        }
+        if (filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
+            return ['', 'invalid_format'];
+        }
+
+        return [$email, $emailUserinfo !== '' ? 'userinfo' : 'id_token'];
+    }
+
+    private function emailFingerprint(string $email): string
+    {
+        $email = strtolower(trim($email));
+        $domain = '';
+        $at = strrpos($email, '@');
+        if ($at !== false) {
+            $domain = strtolower(substr($email, $at + 1));
+        }
+
+        $hash = substr(hash('sha256', $email), 0, 12);
+        if ($domain === '') {
+            $domain = 'unknown';
+        }
+
+        return $domain . ':' . $hash;
+    }
+
     private function isEmailVerifiedForJit(array $userinfo, array $claims): bool
     {
+        $allowUnverified = (bool) $this->params->get('jit_allow_unverified', 0);
+        if ($allowUnverified) {
+            return true;
+        }
+
         $hasUserinfo = array_key_exists('email_verified', $userinfo);
         $hasClaims = array_key_exists('email_verified', $claims);
 
@@ -560,13 +728,46 @@ final class KeycloakOidc extends CMSPlugin
         $kc['last_login'] = gmdate('c');
         $params['keycloak_oidc'] = $kc;
 
-        $user->params = json_encode($params);
-        if ($user->params === false) {
+        $paramsJson = json_encode($params);
+        if ($paramsJson === false) {
             throw new \RuntimeException('Failed to encode params');
         }
 
-        if (!$user->save()) {
-            throw new \RuntimeException('Failed to save user');
+        $user->params = $paramsJson;
+
+        try {
+            if ($user->save()) {
+                return;
+            }
+        } catch (\Throwable $e) {
+        }
+
+        $err = '';
+        if (method_exists($user, 'getError')) {
+            $err = (string) $user->getError();
+        }
+
+        $errHash = $err !== '' ? substr(hash('sha256', $err), 0, 12) : 'none';
+
+        $userId = 0;
+        if (isset($user->id)) {
+            $userId = (int) $user->id;
+        }
+        if ($userId <= 0) {
+            throw new \RuntimeException('Failed to save user (no id) err_hash=' . $errHash);
+        }
+
+        try {
+            $db = Factory::getDbo();
+            $query = $db->getQuery(true)
+                ->update($db->quoteName('#__users'))
+                ->set($db->quoteName('params') . ' = ' . $db->quote($paramsJson))
+                ->where($db->quoteName('id') . ' = ' . (int) $userId);
+            $db->setQuery($query);
+            $db->execute();
+            return;
+        } catch (\Throwable $e) {
+            throw new \RuntimeException('Failed to persist params via db err_hash=' . $errHash);
         }
     }
 
@@ -724,6 +925,18 @@ final class KeycloakOidc extends CMSPlugin
         curl_setopt($ch, CURLOPT_CUSTOMREQUEST, $method);
         curl_setopt($ch, CURLOPT_HTTPHEADER, $effectiveHeaders);
         curl_setopt($ch, CURLOPT_TIMEOUT, 15);
+
+        $tlsVerify = (bool) $this->params->get('tls_verify', 1);
+        $legacyInsecureSkipVerify = (bool) $this->params->get('tls_insecure_skip_verify', 0);
+        if (!$tlsVerify || $legacyInsecureSkipVerify) {
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
+        } else {
+            $caBundle = trim((string) $this->params->get('tls_ca_bundle_path', ''));
+            if ($caBundle !== '') {
+                curl_setopt($ch, CURLOPT_CAINFO, $caBundle);
+            }
+        }
 	    curl_setopt(
 	        $ch,
 	        CURLOPT_HEADERFUNCTION,

@@ -1,8 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <extension type="plugin" group="system" method="upgrade">
   <name>plg_system_keycloak_oidc</name>
-  <version>0.1.0</version>
-  <description>Keycloak OIDC System Plugin</description>
+  <version>0.2</version>
+  <creationDate>2026-01-20</creationDate>
+  <author>CLM Projekt</author>
+  <description>PLG_SYSTEM_KEYCLOAK_OIDC_XML_DESCRIPTION</description>
 
   <namespace path="src">Fishpoke\Plugin\System\KeycloakOidc</namespace>
 
@@ -10,7 +12,15 @@
     <filename plugin="keycloak_oidc">keycloak_oidc.php</filename>
     <folder>src</folder>
     <folder>services</folder>
+    <folder>language</folder>
   </files>
+
+  <languages>
+    <language tag="en-GB">language/en-GB/plg_system_keycloak_oidc.ini</language>
+    <language tag="en-GB">language/en-GB/plg_system_keycloak_oidc.sys.ini</language>
+    <language tag="de-DE">language/de-DE/plg_system_keycloak_oidc.ini</language>
+    <language tag="de-DE">language/de-DE/plg_system_keycloak_oidc.sys.ini</language>
+  </languages>
 
   <config>
     <fields name="params">
@@ -20,8 +30,8 @@
           type="radio"
           layout="joomla.form.field.radio.switcher"
           default="0"
-          label="Debug logging"
-          description="Enable debug logging for the Keycloak OIDC plugin."
+          label="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_DEBUG_LABEL"
+          description="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_DEBUG_DESC"
         >
           <option value="0">Disabled</option>
           <option value="1">Enabled</option>
@@ -31,41 +41,66 @@
         <field
           name="issuer"
           type="text"
-          label="Issuer"
-          description="Keycloak realm issuer URL. Example: https://keycloak.local/realms/&lt;realm&gt;"
+          label="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_ISSUER_LABEL"
+          description="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_ISSUER_DESC"
+        />
+        <field
+          name="tls_ca_bundle_path"
+          type="text"
+          default=""
+          label="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_TLS_CA_BUNDLE_PATH_LABEL"
+          description="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_TLS_CA_BUNDLE_PATH_DESC"
+        />
+        <field
+          name="tls_verify"
+          type="radio"
+          layout="joomla.form.field.radio.switcher"
+          default="1"
+          label="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_TLS_VERIFY_LABEL"
+          description="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_TLS_VERIFY_DESC"
+        >
+          <option value="0">Disabled</option>
+          <option value="1">Enabled</option>
+        </field>
+        <field
+          name="security_notice_oidc"
+          type="note"
+          class="alert alert-danger"
+          label="PLG_SYSTEM_KEYCLOAK_OIDC_SECURITY_NOTICE_LABEL"
+          description="PLG_SYSTEM_KEYCLOAK_OIDC_SECURITY_NOTICE_OIDC_DESC"
         />
         <field
           name="keycloak_internal_base"
           type="text"
-          label="Keycloak internal base URL"
-          description="Optional internal Keycloak base URL for server-to-server requests (e.g. http://keycloak:8080). Leave empty to use the issuer host directly."
+          label="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_KEYCLOAK_INTERNAL_BASE_LABEL"
+          description="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_KEYCLOAK_INTERNAL_BASE_DESC"
         />
         <field
           name="client_id"
           type="text"
-          label="Client ID"
-          description="OIDC client_id as configured in Keycloak."
+          label="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_CLIENT_ID_LABEL"
+          description="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_CLIENT_ID_DESC"
         />
         <field
           name="client_secret"
           type="password"
-          label="Client Secret"
-          description="OIDC client_secret as configured in Keycloak. Do not paste this anywhere else."
+          label="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_CLIENT_SECRET_LABEL"
+          description="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_CLIENT_SECRET_DESC"
         />
         <field
           name="scopes"
           type="text"
           default="openid profile email"
-          label="Scopes"
-          description="Space-separated list of scopes. Default: openid profile email"
+          label="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_SCOPES_LABEL"
+          description="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_SCOPES_DESC"
         />
         <field
           name="enable_frontend"
           type="radio"
           layout="joomla.form.field.radio.switcher"
           default="1"
-          label="Enable frontend"
-          description="Enable Keycloak OIDC authentication flow for the site (frontend)."
+          label="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_ENABLE_FRONTEND_LABEL"
+          description="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_ENABLE_FRONTEND_DESC"
         >
           <option value="0">Disabled</option>
           <option value="1">Enabled</option>
@@ -75,8 +110,8 @@
           type="radio"
           layout="joomla.form.field.radio.switcher"
           default="0"
-          label="Enable backend"
-          description="Enable Keycloak OIDC authentication flow for administrator (backend)."
+          label="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_ENABLE_BACKEND_LABEL"
+          description="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_ENABLE_BACKEND_DESC"
         >
           <option value="0">Disabled</option>
           <option value="1">Enabled</option>
@@ -86,8 +121,8 @@
           type="radio"
           layout="joomla.form.field.radio.switcher"
           default="1"
-          label="Client auth in header"
-          description="Send client credentials to the token endpoint using HTTP Basic Authorization header. Recommended."
+          label="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_CLIENT_AUTH_IN_HEADER_LABEL"
+          description="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_CLIENT_AUTH_IN_HEADER_DESC"
         >
           <option value="0">Disabled</option>
           <option value="1">Enabled</option>
@@ -97,8 +132,8 @@
           type="radio"
           layout="joomla.form.field.radio.switcher"
           default="0"
-          label="Client auth in body"
-          description="Send client credentials to the token endpoint in the POST body. Prefer header unless Keycloak is configured otherwise."
+          label="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_CLIENT_AUTH_IN_BODY_LABEL"
+          description="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_CLIENT_AUTH_IN_BODY_DESC"
         >
           <option value="0">Disabled</option>
           <option value="1">Enabled</option>
@@ -109,25 +144,32 @@
         <field
           name="joomla_public_base_site"
           type="text"
-          label="Joomla public base (site)"
-          description="Optional public base URL used when generating redirect_uri for frontend login. Useful behind proxies or non-standard ports. Example: https://joomla.example.org:8443/"
+          label="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_JOOMLA_PUBLIC_BASE_SITE_LABEL"
+          description="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_JOOMLA_PUBLIC_BASE_SITE_DESC"
         />
         <field
           name="joomla_public_base_admin"
           type="text"
-          label="Joomla public base (administrator)"
-          description="Optional public base URL used when generating redirect_uri for backend login. Example: https://joomla.example.org:8443/administrator/"
+          label="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_JOOMLA_PUBLIC_BASE_ADMIN_LABEL"
+          description="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_JOOMLA_PUBLIC_BASE_ADMIN_DESC"
         />
       </fieldset>
 
       <fieldset name="jit" label="JIT">
         <field
+          name="security_notice_jit"
+          type="note"
+          class="alert alert-danger"
+          label="PLG_SYSTEM_KEYCLOAK_OIDC_SECURITY_NOTICE_LABEL"
+          description="PLG_SYSTEM_KEYCLOAK_OIDC_SECURITY_NOTICE_JIT_DESC"
+        />
+        <field
           name="jit_enabled"
           type="radio"
           layout="joomla.form.field.radio.switcher"
           default="0"
-          label="JIT provisioning"
-          description="If enabled, users authenticated via Keycloak will be created in Joomla automatically when no matching email exists."
+          label="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_JIT_ENABLED_LABEL"
+          description="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_JIT_ENABLED_DESC"
         >
           <option value="0">Disabled</option>
           <option value="1">Enabled</option>
@@ -137,8 +179,19 @@
           type="radio"
           layout="joomla.form.field.radio.switcher"
           default="0"
-          label="Auto-link existing users"
-          description="If enabled, an existing Joomla user found by matching email will be linked to the Keycloak identity on first successful login when no link exists yet."
+          label="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_JIT_AUTO_LINK_EXISTING_LABEL"
+          description="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_JIT_AUTO_LINK_EXISTING_DESC"
+        >
+          <option value="0">Disabled</option>
+          <option value="1">Enabled</option>
+        </field>
+        <field
+          name="jit_allow_unverified"
+          type="radio"
+          layout="joomla.form.field.radio.switcher"
+          default="0"
+          label="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_JIT_ALLOW_UNVERIFIED_LABEL"
+          description="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_JIT_ALLOW_UNVERIFIED_DESC"
         >
           <option value="0">Disabled</option>
           <option value="1">Enabled</option>
@@ -147,23 +200,23 @@
           name="jit_allowed_email_domains"
           type="text"
           default=""
-          label="Allowed email domains"
-          description="Optional comma-separated allowlist of email domains for JIT and auto-linking. Leave empty to allow any domain. Example: example.org,example.com"
+          label="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_JIT_ALLOWED_EMAIL_DOMAINS_LABEL"
+          description="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_JIT_ALLOWED_EMAIL_DOMAINS_DESC"
         />
         <field
           name="jit_group_ids"
           type="text"
           default="2"
-          label="JIT group IDs"
-          description="Comma-separated Joomla user group IDs assigned to newly created users. Default: 2 (Registered). Privileged groups (Administrator/Super Users) are blocked unless explicitly allowed."
+          label="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_JIT_GROUP_IDS_LABEL"
+          description="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_JIT_GROUP_IDS_DESC"
         />
         <field
           name="jit_allow_privileged"
           type="radio"
           layout="joomla.form.field.radio.switcher"
           default="0"
-          label="Allow privileged groups"
-          description="If enabled, JIT can create users into privileged groups (Administrator/Super Users). Strongly discouraged."
+          label="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_JIT_ALLOW_PRIVILEGED_LABEL"
+          description="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_JIT_ALLOW_PRIVILEGED_DESC"
         >
           <option value="0">Disabled</option>
           <option value="1">Enabled</option>
