@@ -88,47 +88,6 @@ final class ModKeycloakLoginHelper
         ];
     }
 
-    public static function searchArticles(): array
-    {
-        $app = Factory::getApplication();
-        $term = trim((string) $app->input->getString('term', ''));
-        if (mb_strlen($term) < 2) {
-            return ['items' => []];
-        }
-
-        $db = Factory::getDbo();
-        $like = '%' . $db->escape($term, true) . '%';
-
-        $query = $db->getQuery(true)
-            ->select([
-                $db->quoteName('id'),
-                $db->quoteName('title'),
-            ])
-            ->from($db->quoteName('#__content'))
-            ->where($db->quoteName('state') . ' = 1')
-            ->where($db->quoteName('title') . ' LIKE ' . $db->quote($like, false))
-            ->order($db->quoteName('title') . ' ASC');
-
-        $db->setQuery($query, 0, 5);
-        $rows = [];
-        try {
-            $rows = (array) $db->loadAssocList();
-        } catch (\Throwable $e) {
-            $rows = [];
-        }
-
-        $items = [];
-        foreach ($rows as $row) {
-            $id = isset($row['id']) ? (int) $row['id'] : 0;
-            $title = isset($row['title']) ? (string) $row['title'] : '';
-            if ($id > 0 && $title !== '') {
-                $items[] = ['id' => $id, 'title' => $title];
-            }
-        }
-
-        return ['items' => $items];
-    }
-
     private static function getDefaultsFromKeycloakOidcPlugin(): array
     {
         try {
@@ -286,13 +245,5 @@ final class ModKeycloakLoginHelper
         }
 
         return '';
-    }
-}
-
-final class KeycloakLoginHelper
-{
-    public function searchArticlesAjax(): array
-    {
-        return ModKeycloakLoginHelper::searchArticles();
     }
 }
