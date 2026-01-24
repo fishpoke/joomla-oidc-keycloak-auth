@@ -87,7 +87,7 @@ final class ModKeycloakLoginHelper
             $logoutReturn = base64_encode(rtrim(Uri::root(), '/') . '/');
         }
 
-        $keycloakLogoutCheckboxEnabled = (bool) $params->get('keycloak_logout_checkbox_enabled', 1);
+        $keycloakLogoutCheckboxEnabled = (bool) $params->get('keycloak_logout_checkbox_enabled', 0);
         $keycloakLogoutCheckboxDefault = (bool) $params->get('keycloak_logout_checkbox_default', 0);
         $keycloakLogoutUrl = self::buildPluginLogoutUrl((string) $params->get('return_url', ''));
 
