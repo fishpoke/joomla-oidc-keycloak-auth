@@ -147,6 +147,30 @@
                     label="MOD_KEYCLOAK_LOGIN_FIELD_ACCOUNT_PATH_LABEL"
                     description="MOD_KEYCLOAK_LOGIN_FIELD_ACCOUNT_PATH_DESC"
                 />
+
+                <field
+                    name="keycloak_logout_checkbox_enabled"
+                    type="radio"
+                    layout="joomla.form.field.radio.switcher"
+                    default="1"
+                    label="MOD_KEYCLOAK_LOGIN_FIELD_KEYCLOAK_LOGOUT_CHECKBOX_ENABLED_LABEL"
+                    description="MOD_KEYCLOAK_LOGIN_FIELD_KEYCLOAK_LOGOUT_CHECKBOX_ENABLED_DESC"
+                >
+                    <option value="0">JDISABLED</option>
+                    <option value="1">JENABLED</option>
+                </field>
+
+                <field
+                    name="keycloak_logout_checkbox_default"
+                    type="radio"
+                    layout="joomla.form.field.radio.switcher"
+                    default="0"
+                    label="MOD_KEYCLOAK_LOGIN_FIELD_KEYCLOAK_LOGOUT_CHECKBOX_DEFAULT_LABEL"
+                    description="MOD_KEYCLOAK_LOGIN_FIELD_KEYCLOAK_LOGOUT_CHECKBOX_DEFAULT_DESC"
+                >
+                    <option value="0">JNO</option>
+                    <option value="1">JYES</option>
+                </field>
             </fieldset>
         </fields>
     </config>

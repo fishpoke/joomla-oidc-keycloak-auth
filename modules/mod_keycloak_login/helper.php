@@ -14,6 +14,12 @@ final class ModKeycloakLoginHelper
 {
     public static function getDisplayData($params): array
     {
+        $app = Factory::getApplication();
+        $identity = method_exists($app, 'getIdentity') ? $app->getIdentity() : null;
+        $userId = is_object($identity) && isset($identity->id) ? (int) $identity->id : 0;
+        $username = is_object($identity) && isset($identity->username) ? (string) $identity->username : '';
+        $isLoggedIn = $userId > 0;
+
         $context = self::resolveContext((string) $params->get('context', 'auto'));
 
         $loginUrl = self::buildLoginUrl($context, (string) $params->get('return_url', ''));
@@ -75,8 +81,20 @@ final class ModKeycloakLoginHelper
 
         $infoColor = self::sanitizeColor((string) $params->get('info_link_color', ''));
 
+        $logoutAction = Route::_('index.php?option=com_users&task=user.logout', false);
+        $logoutReturn = base64_encode(self::sanitizeReturnUrl((string) $params->get('return_url', '')));
+        if ($logoutReturn === base64_encode('')) {
+            $logoutReturn = base64_encode(rtrim(Uri::root(), '/') . '/');
+        }
+
+        $keycloakLogoutCheckboxEnabled = (bool) $params->get('keycloak_logout_checkbox_enabled', 1);
+        $keycloakLogoutCheckboxDefault = (bool) $params->get('keycloak_logout_checkbox_default', 0);
+        $keycloakLogoutUrl = self::buildPluginLogoutUrl((string) $params->get('return_url', ''));
+
         return [
             'context' => $context,
+            'isLoggedIn' => $isLoggedIn,
+            'username' => $username,
             'loginUrl' => $loginUrl,
             'forgotUrl' => $forgotUrl,
             'registerUrl' => $registerUrl,
@@ -85,6 +103,11 @@ final class ModKeycloakLoginHelper
             'infoText' => $infoText,
             'infoColor' => $infoColor,
             'accountUrl' => $accountUrl,
+            'logoutAction' => $logoutAction,
+            'logoutReturn' => $logoutReturn,
+            'keycloakLogoutCheckboxEnabled' => $keycloakLogoutCheckboxEnabled,
+            'keycloakLogoutCheckboxDefault' => $keycloakLogoutCheckboxDefault,
+            'keycloakLogoutUrl' => $keycloakLogoutUrl,
         ];
     }
 
@@ -207,6 +230,23 @@ final class ModKeycloakLoginHelper
         }
 
         return $returnUrl;
+    }
+
+    private static function buildPluginLogoutUrl(string $returnUrl): string
+    {
+        $query = [
+            'option' => 'com_ajax',
+            'plugin' => 'keycloak_oidc',
+            'format' => 'raw',
+            'task' => 'logout',
+        ];
+
+        $safeReturnUrl = self::sanitizeReturnUrl($returnUrl);
+        if ($safeReturnUrl !== '') {
+            $query['return'] = base64_encode($safeReturnUrl);
+        }
+
+        return Route::_('index.php?' . http_build_query($query), false);
     }
 
     private static function buildKeycloakUrl(string $baseUrl, string $pathTemplate, string $realm): string

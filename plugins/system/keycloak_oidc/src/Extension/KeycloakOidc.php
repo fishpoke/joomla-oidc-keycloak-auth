@@ -149,6 +149,11 @@ final class KeycloakOidc extends CMSPlugin
                 return;
             }
 
+            if ($task === 'logout') {
+                $this->handleLogout();
+                return;
+            }
+
             if ($task === 'callback') {
                 $this->handleCallback();
                 return;
@@ -514,12 +519,86 @@ final class KeycloakOidc extends CMSPlugin
         $session->set('user', $user);
         $this->markSessionAuthenticated($userId);
 
+        if ($idToken !== '') {
+            $session->set('kc_oidc_id_token', $idToken);
+        }
+
         $session->set('kc_oidc_state', null);
         $session->set('kc_oidc_nonce', null);
         $session->set('kc_oidc_jit_attempted_for_state', null);
 
-        $app->redirect(Uri::base());
+        $returnUrl = $this->getSafeReturnUrlFromRequest();
+        $app->redirect($returnUrl !== '' ? $returnUrl : Uri::base());
         $app->close();
+    }
+
+    private function handleLogout(): void
+    {
+        $app = Factory::getApplication();
+        $session = $app->getSession();
+
+        $issuer = trim((string) $this->params->get('issuer', ''));
+        if ($issuer === '') {
+            $this->respondText('Missing configuration: issuer.', 400);
+        }
+
+        $discovery = $this->getDiscovery($issuer);
+        $endSessionEndpoint = (string) ($discovery['end_session_endpoint'] ?? '');
+        if ($endSessionEndpoint === '') {
+            $this->respondText('OIDC discovery did not provide end_session_endpoint.', 500);
+        }
+
+        $postLogoutRedirect = $this->getSafeReturnUrlFromRequest();
+        if ($postLogoutRedirect === '') {
+            $postLogoutRedirect = (string) Uri::base();
+        }
+
+        $query = [
+            'post_logout_redirect_uri' => $postLogoutRedirect,
+        ];
+
+        $idToken = (string) $session->get('kc_oidc_id_token', '');
+        if ($idToken !== '') {
+            $query['id_token_hint'] = $idToken;
+        }
+
+        $session->set('kc_oidc_id_token', null);
+
+        $logoutUrl = $endSessionEndpoint;
+        $logoutUrl .= (str_contains($logoutUrl, '?') ? '&' : '?') . http_build_query($query);
+
+        $app->redirect($logoutUrl);
+        $app->close();
+    }
+
+    private function getSafeReturnUrlFromRequest(): string
+    {
+        $app = Factory::getApplication();
+        $encoded = trim((string) $app->input->getString('return', ''));
+        if ($encoded === '') {
+            return '';
+        }
+
+        $decoded = base64_decode($encoded, true);
+        if (!is_string($decoded) || $decoded === '') {
+            return '';
+        }
+
+        if (filter_var($decoded, FILTER_VALIDATE_URL) === false) {
+            return '';
+        }
+
+        $target = Uri::getInstance($decoded);
+        $root = Uri::getInstance($this->getPublicBaseUrlForRedirect());
+
+        $targetHost = strtolower((string) $target->getHost());
+        $rootHost = strtolower((string) $root->getHost());
+
+        if ($targetHost === '' || $rootHost === '' || $targetHost !== $rootHost) {
+            return '';
+        }
+
+        return $decoded;
     }
 
     private function respondAuthDenied(): void
