@@ -209,15 +209,25 @@ final class KeycloakOidc extends CMSPlugin
 
         $redirectUri = $this->getRedirectUri();
 
+        $kcAction = strtoupper(trim((string) $app->input->getCmd('kc_action', '')));
+        $allowedActions = ['REGISTER', 'UPDATE_PASSWORD'];
+        if (!in_array($kcAction, $allowedActions, true)) {
+            $kcAction = '';
+        }
+
         $authUrl = $authorizationEndpoint;
-        $authUrl .= (str_contains($authUrl, '?') ? '&' : '?') . http_build_query([
+        $authQuery = [
             'response_type' => 'code',
             'client_id' => $clientId,
             'redirect_uri' => $redirectUri,
             'scope' => $scopes,
             'state' => $state,
             'nonce' => $nonce,
-        ]);
+        ];
+        if ($kcAction !== '') {
+            $authQuery['kc_action'] = $kcAction;
+        }
+        $authUrl .= (str_contains($authUrl, '?') ? '&' : '?') . http_build_query($authQuery);
 
         $app->redirect($authUrl);
         $app->close();

@@ -17,6 +17,11 @@ final class ModKeycloakLoginHelper
         $context = self::resolveContext((string) $params->get('context', 'auto'));
 
         $loginUrl = self::buildLoginUrl($context, (string) $params->get('return_url', ''));
+        $registerLoginUrl = self::buildLoginUrl(
+            $context,
+            (string) $params->get('return_url', ''),
+            ['kc_action' => 'REGISTER']
+        );
 
         $baseUrl = trim((string) $params->get('keycloak_base_url', ''));
         $realm = trim((string) $params->get('realm', ''));
@@ -33,9 +38,16 @@ final class ModKeycloakLoginHelper
 
         $forgotPath = (string) $params->get('forgot_password_path', '/realms/{realm}/login-actions/reset-credentials');
         $registerPath = (string) $params->get('register_path', '/realms/{realm}/login-actions/registration');
+        $accountPath = (string) $params->get('account_path', '/realms/{realm}/account');
 
         $forgotUrl = self::buildKeycloakUrl($baseUrl, $forgotPath, $realm);
         $registerUrl = self::buildKeycloakUrl($baseUrl, $registerPath, $realm);
+
+        $accountUrl = '';
+        $accountLinkEnabled = (bool) $params->get('account_link_enabled', 0);
+        if ($accountLinkEnabled) {
+            $accountUrl = self::buildKeycloakUrl($baseUrl, $accountPath, $realm);
+        }
 
         $infoLinkEnabled = (bool) $params->get('info_link_enabled', 0);
         $infoArticleId = (int) $params->get('info_article_id', 0);
@@ -56,10 +68,53 @@ final class ModKeycloakLoginHelper
             'loginUrl' => $loginUrl,
             'forgotUrl' => $forgotUrl,
             'registerUrl' => $registerUrl,
+            'registerLoginUrl' => $registerLoginUrl,
             'infoUrl' => $infoUrl,
             'infoText' => $infoText,
             'infoColor' => $infoColor,
+            'accountUrl' => $accountUrl,
         ];
+    }
+
+    public static function searchArticles(): array
+    {
+        $app = Factory::getApplication();
+        $term = trim((string) $app->input->getString('term', ''));
+        if (mb_strlen($term) < 2) {
+            return ['items' => []];
+        }
+
+        $db = Factory::getDbo();
+        $like = '%' . $db->escape($term, true) . '%';
+
+        $query = $db->getQuery(true)
+            ->select([
+                $db->quoteName('id'),
+                $db->quoteName('title'),
+            ])
+            ->from($db->quoteName('#__content'))
+            ->where($db->quoteName('state') . ' = 1')
+            ->where($db->quoteName('title') . ' LIKE ' . $db->quote($like, false))
+            ->order($db->quoteName('title') . ' ASC');
+
+        $db->setQuery($query, 0, 5);
+        $rows = [];
+        try {
+            $rows = (array) $db->loadAssocList();
+        } catch (\Throwable $e) {
+            $rows = [];
+        }
+
+        $items = [];
+        foreach ($rows as $row) {
+            $id = isset($row['id']) ? (int) $row['id'] : 0;
+            $title = isset($row['title']) ? (string) $row['title'] : '';
+            if ($id > 0 && $title !== '') {
+                $items[] = ['id' => $id, 'title' => $title];
+            }
+        }
+
+        return ['items' => $items];
     }
 
     private static function getDefaultsFromKeycloakOidcPlugin(): array
@@ -127,7 +182,7 @@ final class ModKeycloakLoginHelper
         return $app->isClient('administrator') ? 'admin' : 'site';
     }
 
-    private static function buildLoginUrl(string $context, string $returnUrl): string
+    private static function buildLoginUrl(string $context, string $returnUrl, array $extraQuery = []): string
     {
         $query = [
             'option' => 'com_ajax',
@@ -135,6 +190,12 @@ final class ModKeycloakLoginHelper
             'format' => 'raw',
             'task' => 'login',
         ];
+
+        foreach ($extraQuery as $k => $v) {
+            if (is_string($k) && $k !== '' && is_scalar($v) && (string) $v !== '') {
+                $query[$k] = (string) $v;
+            }
+        }
 
         $safeReturnUrl = self::sanitizeReturnUrl($returnUrl);
         if ($safeReturnUrl !== '') {

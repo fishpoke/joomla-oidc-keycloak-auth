@@ -9,14 +9,18 @@ use Joomla\CMS\Language\Text;
 $loginUrl = (string) ($displayData['loginUrl'] ?? '');
 $forgotUrl = (string) ($displayData['forgotUrl'] ?? '');
 $registerUrl = (string) ($displayData['registerUrl'] ?? '');
+$registerLoginUrl = (string) ($displayData['registerLoginUrl'] ?? '');
 $infoUrl = (string) ($displayData['infoUrl'] ?? '');
 $infoText = (string) ($displayData['infoText'] ?? '');
 $infoColor = (string) ($displayData['infoColor'] ?? '');
+$accountUrl = (string) ($displayData['accountUrl'] ?? '');
 
 $loginUrlEsc = htmlspecialchars($loginUrl, ENT_QUOTES, 'UTF-8');
 $forgotUrlEsc = htmlspecialchars($forgotUrl, ENT_QUOTES, 'UTF-8');
 $registerUrlEsc = htmlspecialchars($registerUrl, ENT_QUOTES, 'UTF-8');
+$registerLoginUrlEsc = htmlspecialchars($registerLoginUrl, ENT_QUOTES, 'UTF-8');
 $infoUrlEsc = htmlspecialchars($infoUrl, ENT_QUOTES, 'UTF-8');
+$accountUrlEsc = htmlspecialchars($accountUrl, ENT_QUOTES, 'UTF-8');
 $infoStyle = '';
 if ($infoColor !== '') {
     $infoStyle = 'color: ' . htmlspecialchars($infoColor, ENT_QUOTES, 'UTF-8') . ';';
@@ -39,10 +43,18 @@ if ($infoColor !== '') {
             </div>
         <?php endif; ?>
 
-        <?php if ($registerUrl !== '') : ?>
+        <?php if ($registerLoginUrl !== '') : ?>
             <div class="mt-1">
-                <a href="<?php echo $registerUrlEsc; ?>" rel="noopener noreferrer">
+                <a href="<?php echo $registerLoginUrlEsc; ?>">
                     <?php echo Text::_('MOD_KEYCLOAK_LOGIN_LINK_REGISTER'); ?>
+                </a>
+            </div>
+        <?php endif; ?>
+
+        <?php if ($accountUrl !== '') : ?>
+            <div class="mt-1">
+                <a href="<?php echo $accountUrlEsc; ?>" rel="noopener noreferrer">
+                    <?php echo Text::_('MOD_KEYCLOAK_LOGIN_LINK_ACCOUNT'); ?>
                 </a>
             </div>
         <?php endif; ?>

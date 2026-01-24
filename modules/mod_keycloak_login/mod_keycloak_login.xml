@@ -84,11 +84,10 @@
 
                 <field
                     name="info_article_id"
-                    type="sql"
+                    type="articlesearch"
                     default="0"
                     label="MOD_KEYCLOAK_LOGIN_FIELD_INFO_ARTICLE_ID_LABEL"
                     description="MOD_KEYCLOAK_LOGIN_FIELD_INFO_ARTICLE_ID_DESC"
-                    query="SELECT id AS value, title AS text FROM #__content WHERE state = 1 ORDER BY title ASC"
                 />
 
                 <field
@@ -105,6 +104,26 @@
                     default=""
                     label="MOD_KEYCLOAK_LOGIN_FIELD_INFO_LINK_COLOR_LABEL"
                     description="MOD_KEYCLOAK_LOGIN_FIELD_INFO_LINK_COLOR_DESC"
+                />
+
+                <field
+                    name="account_link_enabled"
+                    type="radio"
+                    layout="joomla.form.field.radio.switcher"
+                    default="0"
+                    label="MOD_KEYCLOAK_LOGIN_FIELD_ACCOUNT_LINK_ENABLED_LABEL"
+                    description="MOD_KEYCLOAK_LOGIN_FIELD_ACCOUNT_LINK_ENABLED_DESC"
+                >
+                    <option value="0">JDISABLED</option>
+                    <option value="1">JENABLED</option>
+                </field>
+
+                <field
+                    name="account_path"
+                    type="text"
+                    default="/realms/{realm}/account"
+                    label="MOD_KEYCLOAK_LOGIN_FIELD_ACCOUNT_PATH_LABEL"
+                    description="MOD_KEYCLOAK_LOGIN_FIELD_ACCOUNT_PATH_DESC"
                 />
             </fieldset>
         </fields>
