@@ -93,6 +93,10 @@ final class KeycloakOidc extends CMSPlugin
             $plugin = $app->input->getCmd('plugin');
             $format = $app->input->getCmd('format', '');
             $task = $app->input->getCmd('task');
+            $method = $app->input->getCmd('method');
+            if ($task === '' && $method !== '') {
+                $task = $method;
+            }
 
             if ($option === 'com_ajax' && $plugin === 'keycloak_oidc' && ($format === 'raw' || $format === '')) {
                 $this->handleAjaxTask($task);
@@ -126,6 +130,21 @@ final class KeycloakOidc extends CMSPlugin
     private function handleAjaxTask(string $task): void
     {
         $app = Factory::getApplication();
+
+        $method = strtolower(trim((string) $app->input->getCmd('method', '')));
+        $normalizedTask = strtolower(trim((string) $task));
+        if ($normalizedTask !== '' && (str_contains($normalizedTask, '.') || str_contains($normalizedTask, '/'))) {
+            $parts = preg_split('#[./]#', $normalizedTask);
+            $normalizedTask = is_array($parts) ? (string) end($parts) : '';
+        }
+
+        if (!in_array($normalizedTask, ['login', 'logout', 'callback'], true)
+            && in_array($method, ['login', 'logout', 'callback'], true)
+        ) {
+            $normalizedTask = $method;
+        }
+
+        $task = $normalizedTask;
 
         if ($task === '') {
             $code = $app->input->getString('code', '');
