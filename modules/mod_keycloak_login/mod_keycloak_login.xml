@@ -45,12 +45,34 @@
                     description="MOD_KEYCLOAK_LOGIN_FIELD_FORGOT_PASSWORD_PATH_DESC"
                 />
                 <field
+                    name="forgot_link_enabled"
+                    type="radio"
+                    layout="joomla.form.field.radio.switcher"
+                    default="1"
+                    label="MOD_KEYCLOAK_LOGIN_FIELD_FORGOT_LINK_ENABLED_LABEL"
+                    description="MOD_KEYCLOAK_LOGIN_FIELD_FORGOT_LINK_ENABLED_DESC"
+                >
+                    <option value="0">JDISABLED</option>
+                    <option value="1">JENABLED</option>
+                </field>
+                <field
                     name="register_path"
                     type="keycloakpath"
                     default="/realms/{realm}/login-actions/registration"
                     label="MOD_KEYCLOAK_LOGIN_FIELD_REGISTER_PATH_LABEL"
                     description="MOD_KEYCLOAK_LOGIN_FIELD_REGISTER_PATH_DESC"
                 />
+                <field
+                    name="register_link_enabled"
+                    type="radio"
+                    layout="joomla.form.field.radio.switcher"
+                    default="1"
+                    label="MOD_KEYCLOAK_LOGIN_FIELD_REGISTER_LINK_ENABLED_LABEL"
+                    description="MOD_KEYCLOAK_LOGIN_FIELD_REGISTER_LINK_ENABLED_DESC"
+                >
+                    <option value="0">JDISABLED</option>
+                    <option value="1">JENABLED</option>
+                </field>
                 <field
                     name="context"
                     type="list"

@@ -17,11 +17,15 @@ final class ModKeycloakLoginHelper
         $context = self::resolveContext((string) $params->get('context', 'auto'));
 
         $loginUrl = self::buildLoginUrl($context, (string) $params->get('return_url', ''));
-        $registerLoginUrl = self::buildLoginUrl(
-            $context,
-            (string) $params->get('return_url', ''),
-            ['kc_action' => 'REGISTER']
-        );
+        $registerLoginUrl = '';
+        $registerLinkEnabled = (bool) $params->get('register_link_enabled', 1);
+        if ($registerLinkEnabled) {
+            $registerLoginUrl = self::buildLoginUrl(
+                $context,
+                (string) $params->get('return_url', ''),
+                ['kc_action' => 'REGISTER']
+            );
+        }
 
         $baseUrl = trim((string) $params->get('keycloak_base_url', ''));
         $realm = trim((string) $params->get('realm', ''));
@@ -40,8 +44,16 @@ final class ModKeycloakLoginHelper
         $registerPath = (string) $params->get('register_path', '/realms/{realm}/login-actions/registration');
         $accountPath = (string) $params->get('account_path', '/realms/{realm}/account');
 
-        $forgotUrl = self::buildKeycloakUrl($baseUrl, $forgotPath, $realm);
-        $registerUrl = self::buildKeycloakUrl($baseUrl, $registerPath, $realm);
+        $forgotUrl = '';
+        $forgotLinkEnabled = (bool) $params->get('forgot_link_enabled', 1);
+        if ($forgotLinkEnabled) {
+            $forgotUrl = self::buildKeycloakUrl($baseUrl, $forgotPath, $realm);
+        }
+
+        $registerUrl = '';
+        if ($registerLinkEnabled) {
+            $registerUrl = self::buildKeycloakUrl($baseUrl, $registerPath, $realm);
+        }
 
         $accountUrl = '';
         $accountLinkEnabled = (bool) $params->get('account_link_enabled', 0);
