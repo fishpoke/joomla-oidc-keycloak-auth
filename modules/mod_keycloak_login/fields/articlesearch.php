@@ -34,7 +34,7 @@ final class JFormFieldArticlesearch extends TextField
         }
 
         $base = rtrim((string) Uri::base(), '/');
-        $ajaxUrl = $base . '/index.php?option=com_ajax&module=mod_keycloak_login&method=searchArticles&format=json';
+        $ajaxUrl = $base . '/index.php?option=com_ajax&module=keycloak_login&method=searchArticles&format=json';
 
         $inputId = $id . '_search';
         $listId = $id . '_results';
@@ -70,7 +70,8 @@ final class JFormFieldArticlesearch extends TextField
         $html .= '.then(function(r){return r.json();})';
         $html .= '.then(function(data){';
         $html .= 'var items=[];';
-        $html .= 'if(data && data.data && data.data.items){items=data.data.items;}';
+        $html .= 'if(data && data.items){items=data.items;}';
+        $html .= 'else if(data && data.data && data.data.items){items=data.data.items;}';
         $html .= 'setItems(items);';
         $html .= '})';
         $html .= '.catch(function(){clearList();});';

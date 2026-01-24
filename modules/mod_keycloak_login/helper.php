@@ -243,7 +243,7 @@ final class ModKeycloakLoginHelper
         $baseUrl = rtrim(trim($baseUrl), '/');
         $realm = trim($realm);
 
-        $path = str_replace(['{realm}', '{REALM}', '{RELAM}'], $realm, $pathTemplate);
+        $path = preg_replace('/\{\s*(?:realm|relam)\s*\}/i', $realm, $pathTemplate);
         $path = '/' . ltrim($path, '/');
 
         if ($baseUrl === '' || $realm === '') {
@@ -274,5 +274,13 @@ final class ModKeycloakLoginHelper
         }
 
         return '';
+    }
+}
+
+final class KeycloakLoginHelper
+{
+    public function searchArticlesAjax(): array
+    {
+        return ModKeycloakLoginHelper::searchArticles();
     }
 }

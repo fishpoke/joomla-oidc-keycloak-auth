@@ -39,14 +39,14 @@
                 />
                 <field
                     name="forgot_password_path"
-                    type="text"
+                    type="keycloakpath"
                     default="/realms/{realm}/login-actions/reset-credentials"
                     label="MOD_KEYCLOAK_LOGIN_FIELD_FORGOT_PASSWORD_PATH_LABEL"
                     description="MOD_KEYCLOAK_LOGIN_FIELD_FORGOT_PASSWORD_PATH_DESC"
                 />
                 <field
                     name="register_path"
-                    type="text"
+                    type="keycloakpath"
                     default="/realms/{realm}/login-actions/registration"
                     label="MOD_KEYCLOAK_LOGIN_FIELD_REGISTER_PATH_LABEL"
                     description="MOD_KEYCLOAK_LOGIN_FIELD_REGISTER_PATH_DESC"
@@ -120,7 +120,7 @@
 
                 <field
                     name="account_path"
-                    type="text"
+                    type="keycloakpath"
                     default="/realms/{realm}/account"
                     label="MOD_KEYCLOAK_LOGIN_FIELD_ACCOUNT_PATH_LABEL"
                     description="MOD_KEYCLOAK_LOGIN_FIELD_ACCOUNT_PATH_DESC"
