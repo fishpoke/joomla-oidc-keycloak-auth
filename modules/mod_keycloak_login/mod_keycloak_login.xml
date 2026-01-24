@@ -9,6 +9,7 @@
     <files>
         <filename module="mod_keycloak_login">mod_keycloak_login.php</filename>
         <filename>helper.php</filename>
+        <folder>fields</folder>
         <folder>tmpl</folder>
         <folder>language</folder>
         <folder>services</folder>
@@ -22,19 +23,17 @@
     </languages>
 
     <config>
-        <fields name="params">
+        <fields name="params" addfieldpath="modules/mod_keycloak_login/fields">
             <fieldset name="basic" label="MOD_KEYCLOAK_LOGIN_FIELDSET_BASIC">
                 <field
                     name="keycloak_base_url"
-                    type="text"
-                    required="true"
+                    type="keycloakbaseurl"
                     label="MOD_KEYCLOAK_LOGIN_FIELD_KEYCLOAK_BASE_URL_LABEL"
                     description="MOD_KEYCLOAK_LOGIN_FIELD_KEYCLOAK_BASE_URL_DESC"
                 />
                 <field
                     name="realm"
-                    type="text"
-                    required="true"
+                    type="keycloakrealm"
                     label="MOD_KEYCLOAK_LOGIN_FIELD_REALM_LABEL"
                     description="MOD_KEYCLOAK_LOGIN_FIELD_REALM_DESC"
                 />
@@ -85,10 +84,11 @@
 
                 <field
                     name="info_article_id"
-                    type="modal_article"
+                    type="sql"
                     default="0"
                     label="MOD_KEYCLOAK_LOGIN_FIELD_INFO_ARTICLE_ID_LABEL"
                     description="MOD_KEYCLOAK_LOGIN_FIELD_INFO_ARTICLE_ID_DESC"
+                    query="SELECT id AS value, title AS text FROM #__content WHERE state = 1 ORDER BY title ASC"
                 />
 
                 <field
@@ -101,7 +101,7 @@
 
                 <field
                     name="info_link_color"
-                    type="text"
+                    type="color"
                     default=""
                     label="MOD_KEYCLOAK_LOGIN_FIELD_INFO_LINK_COLOR_LABEL"
                     description="MOD_KEYCLOAK_LOGIN_FIELD_INFO_LINK_COLOR_DESC"

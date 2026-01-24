@@ -5,8 +5,10 @@ declare(strict_types=1);
 defined('_JEXEC') or die;
 
 use Joomla\CMS\Factory;
+use Joomla\CMS\Plugin\PluginHelper;
 use Joomla\CMS\Router\Route;
 use Joomla\CMS\Uri\Uri;
+use Joomla\Registry\Registry;
 
 final class ModKeycloakLoginHelper
 {
@@ -18,6 +20,16 @@ final class ModKeycloakLoginHelper
 
         $baseUrl = trim((string) $params->get('keycloak_base_url', ''));
         $realm = trim((string) $params->get('realm', ''));
+
+        if ($baseUrl === '' || $realm === '') {
+            [$fallbackBaseUrl, $fallbackRealm] = self::getDefaultsFromKeycloakOidcPlugin();
+            if ($baseUrl === '' && $fallbackBaseUrl !== '') {
+                $baseUrl = $fallbackBaseUrl;
+            }
+            if ($realm === '' && $fallbackRealm !== '') {
+                $realm = $fallbackRealm;
+            }
+        }
 
         $forgotPath = (string) $params->get('forgot_password_path', '/realms/{realm}/login-actions/reset-credentials');
         $registerPath = (string) $params->get('register_path', '/realms/{realm}/login-actions/registration');
@@ -48,6 +60,60 @@ final class ModKeycloakLoginHelper
             'infoText' => $infoText,
             'infoColor' => $infoColor,
         ];
+    }
+
+    private static function getDefaultsFromKeycloakOidcPlugin(): array
+    {
+        try {
+            $plugin = PluginHelper::getPlugin('system', 'keycloak_oidc');
+            if (!is_object($plugin) || !property_exists($plugin, 'params')) {
+                return ['', ''];
+            }
+
+            $registry = new Registry($plugin->params);
+            $issuer = trim((string) $registry->get('issuer', ''));
+            if ($issuer === '') {
+                return ['', ''];
+            }
+
+            return self::parseIssuer($issuer);
+        } catch (\Throwable $e) {
+            return ['', ''];
+        }
+    }
+
+    private static function parseIssuer(string $issuer): array
+    {
+        $issuer = rtrim(trim($issuer), '/');
+        $parts = parse_url($issuer);
+        if (!is_array($parts)) {
+            return ['', ''];
+        }
+
+        $scheme = (string) ($parts['scheme'] ?? '');
+        $host = (string) ($parts['host'] ?? '');
+        $port = isset($parts['port']) ? (int) $parts['port'] : 0;
+        $path = (string) ($parts['path'] ?? '');
+
+        if ($scheme === '' || $host === '') {
+            return ['', ''];
+        }
+
+        $baseUrl = $scheme . '://' . $host;
+        if ($port > 0) {
+            $baseUrl .= ':' . $port;
+        }
+
+        $realm = '';
+        if ($path !== '') {
+            $pathParts = array_values(array_filter(explode('/', $path), static fn($p) => $p !== ''));
+            $idx = array_search('realms', $pathParts, true);
+            if ($idx !== false && isset($pathParts[$idx + 1])) {
+                $realm = (string) $pathParts[$idx + 1];
+            }
+        }
+
+        return [$baseUrl, $realm];
     }
 
     private static function resolveContext(string $context): string
@@ -116,7 +182,7 @@ final class ModKeycloakLoginHelper
         $baseUrl = rtrim(trim($baseUrl), '/');
         $realm = trim($realm);
 
-        $path = str_replace('{realm}', $realm, $pathTemplate);
+        $path = str_replace(['{realm}', '{REALM}', '{RELAM}'], $realm, $pathTemplate);
         $path = '/' . ltrim($path, '/');
 
         if ($baseUrl === '' || $realm === '') {

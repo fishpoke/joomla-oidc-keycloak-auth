@@ -8,3 +8,6 @@ infra/docker-compose.override.yml
 # logs / temp
 *.log
 .DS_Store
+
+# build artifacts
+*.zip
