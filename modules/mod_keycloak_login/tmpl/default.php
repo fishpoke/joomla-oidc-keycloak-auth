@@ -24,6 +24,8 @@ $logoutReturn = (string) ($displayData['logoutReturn'] ?? '');
 $keycloakLogoutCheckboxEnabled = (bool) ($displayData['keycloakLogoutCheckboxEnabled'] ?? true);
 $keycloakLogoutCheckboxDefault = (bool) ($displayData['keycloakLogoutCheckboxDefault'] ?? false);
 $keycloakLogoutUrl = (string) ($displayData['keycloakLogoutUrl'] ?? '');
+$loginButtonText = (string) ($displayData['loginButtonText'] ?? 'MOD_KEYCLOAK_LOGIN_BUTTON_LOGIN');
+$logoutButtonText = (string) ($displayData['logoutButtonText'] ?? 'JLOGOUT');
 
 $loginUrlEsc = htmlspecialchars($loginUrl, ENT_QUOTES, 'UTF-8');
 $forgotUrlEsc = htmlspecialchars($forgotUrl, ENT_QUOTES, 'UTF-8');
@@ -52,7 +54,13 @@ if ($infoColor !== '') {
 
             <div class="d-grid gap-2">
                 <button type="submit" class="btn btn-primary w-100">
-                    <?php echo Text::_('JLOGOUT'); ?>
+                    <?php
+                    if (preg_match('/^[A-Z0-9_]+$/', $logoutButtonText) === 1) {
+                        echo Text::_($logoutButtonText);
+                    } else {
+                        echo htmlspecialchars($logoutButtonText, ENT_QUOTES, 'UTF-8');
+                    }
+                    ?>
                 </button>
             </div>
 
@@ -66,11 +74,21 @@ if ($infoColor !== '') {
                 <script>
                 (function(){
                     var cb=document.getElementById('mod-keycloak-login-kc-logout');
+                    var form=document.getElementById('mod-keycloak-login-logout-form');
                     var ret=document.getElementById('mod-keycloak-login-logout-return');
-                    if(!cb||!ret){return;}
-                    var normal=<?php echo json_encode($logoutReturn); ?>;
-                    var kc=<?php echo json_encode(base64_encode($keycloakLogoutUrl)); ?>;
-                    function sync(){ret.value=cb.checked?kc:normal;}
+                    if(!cb||!form||!ret){return;}
+                    var normalAction=<?php echo json_encode($logoutAction); ?>;
+                    var kcAction=<?php echo json_encode($keycloakLogoutUrl); ?>;
+                    var normalReturn=<?php echo json_encode($logoutReturn); ?>;
+                    function sync(){
+                        if(cb.checked){
+                            form.action=kcAction;
+                            ret.value=normalReturn;
+                        }else{
+                            form.action=normalAction;
+                            ret.value=normalReturn;
+                        }
+                    }
                     cb.addEventListener('change',sync);
                     sync();
                 })();
@@ -80,7 +98,13 @@ if ($infoColor !== '') {
     <?php else : ?>
         <div class="d-grid gap-2">
             <a class="btn btn-primary w-100" href="<?php echo $loginUrlEsc; ?>">
-                <?php echo Text::_('MOD_KEYCLOAK_LOGIN_BUTTON_LOGIN'); ?>
+                <?php
+                if (preg_match('/^[A-Z0-9_]+$/', $loginButtonText) === 1) {
+                    echo Text::_($loginButtonText);
+                } else {
+                    echo htmlspecialchars($loginButtonText, ENT_QUOTES, 'UTF-8');
+                }
+                ?>
             </a>
         </div>
     <?php endif; ?>

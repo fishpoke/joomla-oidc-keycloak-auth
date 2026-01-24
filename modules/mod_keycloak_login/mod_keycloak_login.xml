@@ -171,6 +171,22 @@
                     <option value="0">JNO</option>
                     <option value="1">JYES</option>
                 </field>
+
+                <field
+                    name="login_button_text"
+                    type="text"
+                    default=""
+                    label="MOD_KEYCLOAK_LOGIN_FIELD_LOGIN_BUTTON_TEXT_LABEL"
+                    description="MOD_KEYCLOAK_LOGIN_FIELD_LOGIN_BUTTON_TEXT_DESC"
+                />
+
+                <field
+                    name="logout_button_text"
+                    type="text"
+                    default=""
+                    label="MOD_KEYCLOAK_LOGIN_FIELD_LOGOUT_BUTTON_TEXT_LABEL"
+                    description="MOD_KEYCLOAK_LOGIN_FIELD_LOGOUT_BUTTON_TEXT_DESC"
+                />
             </fieldset>
         </fields>
     </config>

@@ -564,6 +564,11 @@ final class KeycloakOidc extends CMSPlugin
 
         $session->set('kc_oidc_id_token', null);
 
+        try {
+            $app->logout();
+        } catch (\Throwable $e) {
+        }
+
         $logoutUrl = $endSessionEndpoint;
         $logoutUrl .= (str_contains($logoutUrl, '?') ? '&' : '?') . http_build_query($query);
 

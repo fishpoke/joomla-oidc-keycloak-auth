@@ -91,6 +91,16 @@ final class ModKeycloakLoginHelper
         $keycloakLogoutCheckboxDefault = (bool) $params->get('keycloak_logout_checkbox_default', 0);
         $keycloakLogoutUrl = self::buildPluginLogoutUrl((string) $params->get('return_url', ''));
 
+        $loginButtonText = trim((string) $params->get('login_button_text', ''));
+        if ($loginButtonText === '') {
+            $loginButtonText = 'MOD_KEYCLOAK_LOGIN_BUTTON_LOGIN';
+        }
+
+        $logoutButtonText = trim((string) $params->get('logout_button_text', ''));
+        if ($logoutButtonText === '') {
+            $logoutButtonText = 'JLOGOUT';
+        }
+
         return [
             'context' => $context,
             'isLoggedIn' => $isLoggedIn,
@@ -108,6 +118,8 @@ final class ModKeycloakLoginHelper
             'keycloakLogoutCheckboxEnabled' => $keycloakLogoutCheckboxEnabled,
             'keycloakLogoutCheckboxDefault' => $keycloakLogoutCheckboxDefault,
             'keycloakLogoutUrl' => $keycloakLogoutUrl,
+            'loginButtonText' => $loginButtonText,
+            'logoutButtonText' => $logoutButtonText,
         ];
     }
 
