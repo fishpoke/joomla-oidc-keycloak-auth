@@ -251,6 +251,7 @@ final class ModKeycloakLoginHelper
             'plugin' => 'keycloak_oidc',
             'format' => 'raw',
             'task' => 'logout',
+            'method' => 'logout',
         ];
 
         $safeReturnUrl = self::sanitizeReturnUrl($returnUrl);
