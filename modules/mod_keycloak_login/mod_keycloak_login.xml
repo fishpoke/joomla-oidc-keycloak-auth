@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="utf-8"?>
+<extension type="module" client="site" method="upgrade">
+    <name>MOD_KEYCLOAK_LOGIN</name>
+    <author>CLM Projekt</author>
+    <creationDate>2026-01-20</creationDate>
+    <version>0.1.0</version>
+    <description>MOD_KEYCLOAK_LOGIN_XML_DESCRIPTION</description>
+
+    <files>
+        <filename module="mod_keycloak_login">mod_keycloak_login.php</filename>
+        <filename>helper.php</filename>
+        <folder>tmpl</folder>
+        <folder>language</folder>
+        <folder>services</folder>
+    </files>
+
+    <languages>
+        <language tag="en-GB">language/en-GB/en-GB.mod_keycloak_login.ini</language>
+        <language tag="en-GB">language/en-GB/en-GB.mod_keycloak_login.sys.ini</language>
+        <language tag="de-DE">language/de-DE/de-DE.mod_keycloak_login.ini</language>
+        <language tag="de-DE">language/de-DE/de-DE.mod_keycloak_login.sys.ini</language>
+    </languages>
+
+    <config>
+        <fields name="params">
+            <fieldset name="basic" label="MOD_KEYCLOAK_LOGIN_FIELDSET_BASIC">
+                <field
+                    name="keycloak_base_url"
+                    type="text"
+                    required="true"
+                    label="MOD_KEYCLOAK_LOGIN_FIELD_KEYCLOAK_BASE_URL_LABEL"
+                    description="MOD_KEYCLOAK_LOGIN_FIELD_KEYCLOAK_BASE_URL_DESC"
+                />
+                <field
+                    name="realm"
+                    type="text"
+                    required="true"
+                    label="MOD_KEYCLOAK_LOGIN_FIELD_REALM_LABEL"
+                    description="MOD_KEYCLOAK_LOGIN_FIELD_REALM_DESC"
+                />
+                <field
+                    name="forgot_password_path"
+                    type="text"
+                    default="/realms/{realm}/login-actions/reset-credentials"
+                    label="MOD_KEYCLOAK_LOGIN_FIELD_FORGOT_PASSWORD_PATH_LABEL"
+                    description="MOD_KEYCLOAK_LOGIN_FIELD_FORGOT_PASSWORD_PATH_DESC"
+                />
+                <field
+                    name="register_path"
+                    type="text"
+                    default="/realms/{realm}/login-actions/registration"
+                    label="MOD_KEYCLOAK_LOGIN_FIELD_REGISTER_PATH_LABEL"
+                    description="MOD_KEYCLOAK_LOGIN_FIELD_REGISTER_PATH_DESC"
+                />
+                <field
+                    name="context"
+                    type="list"
+                    default="auto"
+                    label="MOD_KEYCLOAK_LOGIN_FIELD_CONTEXT_LABEL"
+                    description="MOD_KEYCLOAK_LOGIN_FIELD_CONTEXT_DESC"
+                >
+                    <option value="auto">MOD_KEYCLOAK_LOGIN_CONTEXT_AUTO</option>
+                    <option value="site">MOD_KEYCLOAK_LOGIN_CONTEXT_SITE</option>
+                    <option value="admin">MOD_KEYCLOAK_LOGIN_CONTEXT_ADMIN</option>
+                </field>
+                <field
+                    name="return_url"
+                    type="url"
+                    default=""
+                    label="MOD_KEYCLOAK_LOGIN_FIELD_RETURN_URL_LABEL"
+                    description="MOD_KEYCLOAK_LOGIN_FIELD_RETURN_URL_DESC"
+                />
+
+                <field
+                    name="info_link_enabled"
+                    type="radio"
+                    layout="joomla.form.field.radio.switcher"
+                    default="0"
+                    label="MOD_KEYCLOAK_LOGIN_FIELD_INFO_LINK_ENABLED_LABEL"
+                    description="MOD_KEYCLOAK_LOGIN_FIELD_INFO_LINK_ENABLED_DESC"
+                >
+                    <option value="0">JDISABLED</option>
+                    <option value="1">JENABLED</option>
+                </field>
+
+                <field
+                    name="info_article_id"
+                    type="modal_article"
+                    default="0"
+                    label="MOD_KEYCLOAK_LOGIN_FIELD_INFO_ARTICLE_ID_LABEL"
+                    description="MOD_KEYCLOAK_LOGIN_FIELD_INFO_ARTICLE_ID_DESC"
+                />
+
+                <field
+                    name="info_link_text"
+                    type="text"
+                    default=""
+                    label="MOD_KEYCLOAK_LOGIN_FIELD_INFO_LINK_TEXT_LABEL"
+                    description="MOD_KEYCLOAK_LOGIN_FIELD_INFO_LINK_TEXT_DESC"
+                />
+
+                <field
+                    name="info_link_color"
+                    type="text"
+                    default=""
+                    label="MOD_KEYCLOAK_LOGIN_FIELD_INFO_LINK_COLOR_LABEL"
+                    description="MOD_KEYCLOAK_LOGIN_FIELD_INFO_LINK_COLOR_DESC"
+                />
+            </fieldset>
+        </fields>
+    </config>
+</extension>

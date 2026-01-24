@@ -1,6 +1,10 @@
 # joomla-oidc-keycloak-auth
 Community-driven Joomla 5 OIDC authentication plugin focused on Keycloak. Replaces vendor-locked SSO extensions with an open-source, auditable implementation including JIT provisioning, group mapping, and hardened OIDC flows.
 
+## Companion module: mod_keycloak_login
+
+This repository also includes a companion Joomla module `mod_keycloak_login` under `modules/mod_keycloak_login/`. It provides a Joomla-core-like login module UI that starts the Keycloak OIDC login flow via the `keycloak_oidc` plugin and optionally links to Keycloak registration / password reset.
+
 ## Packaging / Installation
 
 Create a Joomla install ZIP containing only the plugin files (no `infra/`):
