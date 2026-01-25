@@ -1500,6 +1500,7 @@ final class KeycloakOidc extends CMSPlugin
 
         $tlsVerify = (bool) $this->params->get('tls_verify', 1);
         $legacyInsecureSkipVerify = (bool) $this->params->get('tls_insecure_skip_verify', 0);
+        $caBundle = '';
         if (!$tlsVerify || $legacyInsecureSkipVerify) {
             curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
             curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
@@ -1536,6 +1537,10 @@ final class KeycloakOidc extends CMSPlugin
         }
 
         if ($this->isDebugEnabled()) {
+            $urlParts = parse_url($url);
+            $urlHost = is_array($urlParts) ? strtolower((string) ($urlParts['host'] ?? '')) : '';
+            $urlPort = is_array($urlParts) && isset($urlParts['port']) ? (int) $urlParts['port'] : 0;
+
             $headerNames = [];
             $hasAuth = 0;
             foreach ($effectiveHeaders as $h) {
@@ -1575,9 +1580,12 @@ final class KeycloakOidc extends CMSPlugin
             $this->logHttpExchange('HTTP_REQUEST', [
                 'method' => $method,
                 'url' => $this->safeUrlForError($url),
+                'url_host' => $urlHost,
+                'url_port' => $urlPort,
                 'tls_verify' => $tlsVerify ? 1 : 0,
                 'tls_insecure_skip_verify' => $legacyInsecureSkipVerify ? 1 : 0,
-                'ca_bundle_set' => (isset($caBundle) && (string) $caBundle !== '') ? 1 : 0,
+                'ca_bundle_set' => $caBundle !== '' ? 1 : 0,
+                'ca_bundle_path' => $caBundle !== '' ? $caBundle : '',
                 'host_header' => $hostHeader !== null ? $hostHeader : '',
                 'forwarded' => is_array($forwarded) ? $forwarded : [],
                 'timeout' => 15,
@@ -1594,19 +1602,35 @@ final class KeycloakOidc extends CMSPlugin
         $curlErr = $curlErrno !== 0 ? curl_error($ch) : '';
         if ($response === false) {
             $err = curl_error($ch);
+            $effectiveUrl = (string) curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
+            $primaryIp = (string) curl_getinfo($ch, CURLINFO_PRIMARY_IP);
+            $sslVerifyResult = (int) curl_getinfo($ch, CURLINFO_SSL_VERIFYRESULT);
+
             if ($this->isDebugEnabled()) {
                 $this->logHttpExchange('HTTP_ERROR', [
                     'method' => $method,
                     'url' => $this->safeUrlForError($url),
+                    'effective_url' => $effectiveUrl,
+                    'primary_ip' => $primaryIp,
+                    'ssl_verifyresult' => $sslVerifyResult,
                     'curl_errno' => $curlErrno,
                     'curl_error' => $err,
                 ]);
             }
             curl_close($ch);
-            throw new \RuntimeException('HTTP request failed: ' . $err);
+
+            $diagnosis = '';
+            if ($curlErrno === 60) {
+                $diagnosis = ' Diagnosis: Server liefert vermutlich keine vollständige Zertifikatskette auf diesem Port; prüfe fullchain / intermediate CA (curl_errno=60).';
+            }
+
+            throw new \RuntimeException('HTTP request failed: ' . $err . $diagnosis);
         }
 
         $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $effectiveUrl = (string) curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
+        $primaryIp = (string) curl_getinfo($ch, CURLINFO_PRIMARY_IP);
+        $sslVerifyResult = (int) curl_getinfo($ch, CURLINFO_SSL_VERIFYRESULT);
 
         if ($wantCertInfo) {
             $certInfo = curl_getinfo($ch, CURLINFO_CERTINFO);
@@ -1642,6 +1666,9 @@ final class KeycloakOidc extends CMSPlugin
                 'method' => $method,
                 'url' => $this->safeUrlForError($url),
                 'status' => $status,
+                'effective_url' => $effectiveUrl,
+                'primary_ip' => $primaryIp,
+                'ssl_verifyresult' => $sslVerifyResult,
                 'curl_errno' => $curlErrno,
                 'curl_error' => $curlErr,
             ]);
@@ -1679,6 +1706,9 @@ final class KeycloakOidc extends CMSPlugin
                     'method' => $method,
                     'url' => $this->safeUrlForError($url),
                     'status' => $status,
+                    'effective_url' => $effectiveUrl,
+                    'primary_ip' => $primaryIp,
+                    'ssl_verifyresult' => $sslVerifyResult,
                     'curl_errno' => $curlErrno,
                     'curl_error' => $curlErr,
                     'body_snippet' => $snippet200,
@@ -1747,6 +1777,21 @@ final class KeycloakOidc extends CMSPlugin
             return $url;
         }
 
+        $allowDifferentHost = (bool) $this->params->get(
+            'allow_different_endpoint_host',
+            (bool) $this->params->get('static_allow_different_host', 0)
+        );
+        if (!$allowDifferentHost) {
+            if ($this->isDebugEnabled()) {
+                $this->debugLog('INTERNAL_BASE_IGNORED', 'keycloak_internal_base is set but allow_different_endpoint_host is disabled; not rewriting URL', [
+                    'internal_base' => $this->safeUrlForError($internalBase),
+                ]);
+            }
+            $hostHeader = null;
+            $forwarded = null;
+            return $url;
+        }
+
         if (!is_array($issuerParts) || ($issuerParts['host'] ?? '') === '') {
             $hostHeader = null;
             $forwarded = null;
@@ -1768,11 +1813,53 @@ final class KeycloakOidc extends CMSPlugin
             return $url;
         }
 
+        $allowedHosts = $this->parseAllowedHosts((string) $this->params->get(
+            'allowed_endpoint_hosts',
+            (string) $this->params->get('static_allowed_hosts', '')
+        ));
+        if ($allowedHosts === []) {
+            if ($this->isDebugEnabled()) {
+                $this->debugLog('INTERNAL_BASE_IGNORED', 'allow_different_endpoint_host is enabled but allowed_endpoint_hosts is empty; not rewriting URL', [
+                    'internal_base' => $this->safeUrlForError($internalBase),
+                ]);
+            }
+            $hostHeader = null;
+            $forwarded = null;
+            return $url;
+        }
+
         $internalParts = parse_url(rtrim($internalBase, '/'));
         if (!is_array($internalParts) || ($internalParts['scheme'] ?? '') === '' || ($internalParts['host'] ?? '') === '') {
             $hostHeader = null;
             $forwarded = null;
             return $url;
+        }
+
+        $internalHost = strtolower((string) ($internalParts['host'] ?? ''));
+        $internalScheme = strtolower((string) ($internalParts['scheme'] ?? ''));
+        $internalPort = isset($internalParts['port']) ? (int) $internalParts['port'] : ($internalScheme === 'https' ? 443 : 80);
+        $internalHostport = $internalHost . ':' . (string) $internalPort;
+
+        if (!in_array($internalHostport, $allowedHosts, true) && !in_array($internalHost, $allowedHosts, true)) {
+            if ($this->isDebugEnabled()) {
+                $this->debugLog('INTERNAL_BASE_IGNORED', 'internal base host is not allowlisted; not rewriting URL', [
+                    'internal_base' => $this->safeUrlForError($internalBase),
+                    'internal_hostport' => $internalHostport,
+                    'allowed_hosts' => implode(',', $allowedHosts),
+                ]);
+            }
+            $hostHeader = null;
+            $forwarded = null;
+            return $url;
+        }
+
+        if ($this->isDebugEnabled()) {
+            $this->debugLog('INTERNAL_BASE_REWRITE', 'rewriting URL to internal base (ensure TLS/SNI matches internal host when using https)', [
+                'original_url' => $this->safeUrlForError($url),
+                'internal_base' => $this->safeUrlForError($internalBase),
+                'host_header' => $hostHeader,
+                'forwarded' => is_array($forwarded) ? $forwarded : [],
+            ]);
         }
 
         $internalOrigin = (string) $internalParts['scheme'] . '://' . (string) $internalParts['host'] . (isset($internalParts['port']) ? (':' . (string) $internalParts['port']) : '');
@@ -1786,6 +1873,26 @@ final class KeycloakOidc extends CMSPlugin
         $query = isset($parts['query']) ? ('?' . (string) $parts['query']) : '';
 
         return $internalOrigin . $path . $query;
+    }
+
+    private function parseAllowedHosts(string $raw): array
+    {
+        $raw = trim($raw);
+        if ($raw === '') {
+            return [];
+        }
+
+        $parts = preg_split('/\s*,\s*/', $raw);
+        $out = [];
+        if (is_array($parts)) {
+            foreach ($parts as $p) {
+                $p = strtolower(trim((string) $p));
+                if ($p !== '') {
+                    $out[] = $p;
+                }
+            }
+        }
+        return array_values(array_unique($out));
     }
 
     private function createJoomlaUserFromUserinfo(array $userinfo, string $email, array $groupIds): int

@@ -93,6 +93,8 @@ final class EndpointResolver
             throw new \RuntimeException('OIDC discovery did not provide required endpoints (authorization/token/jwks).');
         }
 
+        $this->validateEndpointConsistency($issuer, [$auth, $token, $jwks, $userinfo, $endSession]);
+
         return [
             'mode' => self::MODE_DISCOVERY,
             'issuer' => $issuer,
@@ -116,7 +118,7 @@ final class EndpointResolver
             throw new \RuntimeException('Missing configuration: authorization_endpoint/token_endpoint/jwks_uri are required in static mode.');
         }
 
-        $this->validateStaticEndpointConsistency($issuer, [$auth, $token, $jwks, $userinfo, $endSession]);
+        $this->validateEndpointConsistency($issuer, [$auth, $token, $jwks, $userinfo, $endSession]);
 
         return [
             'mode' => self::MODE_STATIC,
@@ -129,10 +131,16 @@ final class EndpointResolver
         ];
     }
 
-    private function validateStaticEndpointConsistency(string $issuer, array $urls): void
+    private function validateEndpointConsistency(string $issuer, array $urls): void
     {
-        $allowDifferentHost = (bool) $this->params->get('static_allow_different_host', 0);
-        $allowedHosts = $this->parseAllowedHosts((string) $this->params->get('static_allowed_hosts', ''));
+        $allowDifferentHost = (bool) $this->params->get(
+            'allow_different_endpoint_host',
+            (bool) $this->params->get('static_allow_different_host', 0)
+        );
+        $allowedHosts = $this->parseAllowedHosts((string) $this->params->get(
+            'allowed_endpoint_hosts',
+            (string) $this->params->get('static_allowed_hosts', '')
+        ));
 
         $issuerParts = $this->parseUrlParts($issuer);
         $issuerHost = $issuerParts['hostport'];
@@ -157,7 +165,7 @@ final class EndpointResolver
             }
 
             if ($allowedHosts === []) {
-                throw new \RuntimeException('static_allow_different_host is enabled but static_allowed_hosts is empty.');
+                throw new \RuntimeException('allow_different_endpoint_host is enabled but allowed_endpoint_hosts is empty.');
             }
 
             if (!in_array($parts['hostport'], $allowedHosts, true) && !in_array($parts['host'], $allowedHosts, true)) {
@@ -166,7 +174,7 @@ final class EndpointResolver
         }
 
         if ($allowDifferentHost) {
-            ($this->log)('WARNING static_allow_different_host enabled. allowed_hosts=' . implode(',', $allowedHosts));
+            ($this->log)('WARNING allow_different_endpoint_host enabled. allowed_hosts=' . implode(',', $allowedHosts));
         }
     }
 
@@ -235,6 +243,15 @@ final class EndpointResolver
     {
         $issuer = $this->normalizeIssuer((string) $this->params->get('issuer', ''));
 
+        $allowDifferentHost = (int) (bool) $this->params->get(
+            'allow_different_endpoint_host',
+            (bool) $this->params->get('static_allow_different_host', 0)
+        );
+        $allowedHosts = trim((string) $this->params->get(
+            'allowed_endpoint_hosts',
+            (string) $this->params->get('static_allowed_hosts', '')
+        ));
+
         $parts = [
             'v2',
             'mode=' . $mode,
@@ -244,8 +261,8 @@ final class EndpointResolver
             'jwks=' . trim((string) $this->params->get('jwks_uri', '')),
             'userinfo=' . trim((string) $this->params->get('userinfo_endpoint', '')),
             'endsession=' . trim((string) $this->params->get('end_session_endpoint', '')),
-            'allowDiff=' . ((int) (bool) $this->params->get('static_allow_different_host', 0)),
-            'allowedHosts=' . trim((string) $this->params->get('static_allowed_hosts', '')),
+            'allowDiff=' . $allowDifferentHost,
+            'allowedHosts=' . $allowedHosts,
         ];
 
         return 'kc_oidc_endpoints_' . sha1(implode('|', $parts));

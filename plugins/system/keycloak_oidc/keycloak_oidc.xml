@@ -60,7 +60,6 @@
           name="static_notice"
           type="note"
           class="alert alert-warning"
-          showon="endpoint_mode:static"
           label="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_STATIC_NOTICE_LABEL"
           description="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_STATIC_NOTICE_DESC"
         />
@@ -108,25 +107,24 @@
         />
 
         <field
-          name="static_allow_different_host"
+          name="allow_different_endpoint_host"
           type="radio"
           layout="joomla.form.field.radio.switcher"
           default="0"
-          showon="endpoint_mode:static"
-          label="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_STATIC_ALLOW_DIFFERENT_HOST_LABEL"
-          description="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_STATIC_ALLOW_DIFFERENT_HOST_DESC"
+          label="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_ALLOW_DIFFERENT_ENDPOINT_HOST_LABEL"
+          description="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_ALLOW_DIFFERENT_ENDPOINT_HOST_DESC"
         >
           <option value="0">Disabled</option>
           <option value="1">Enabled</option>
         </field>
 
         <field
-          name="static_allowed_hosts"
+          name="allowed_endpoint_hosts"
           type="text"
           default=""
-          showon="endpoint_mode:static[AND]static_allow_different_host:1"
-          label="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_STATIC_ALLOWED_HOSTS_LABEL"
-          description="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_STATIC_ALLOWED_HOSTS_DESC"
+          showon="allow_different_endpoint_host:1"
+          label="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_ALLOWED_ENDPOINT_HOSTS_LABEL"
+          description="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_ALLOWED_ENDPOINT_HOSTS_DESC"
         />
 
         <field
@@ -159,6 +157,14 @@
           type="text"
           label="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_KEYCLOAK_INTERNAL_BASE_LABEL"
           description="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_KEYCLOAK_INTERNAL_BASE_DESC"
+        />
+
+        <field
+          name="keycloak_internal_base_notice"
+          type="note"
+          class="alert alert-warning"
+          label="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_KEYCLOAK_INTERNAL_BASE_NOTICE_LABEL"
+          description="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_KEYCLOAK_INTERNAL_BASE_NOTICE_DESC"
         />
         <field
           name="client_id"
