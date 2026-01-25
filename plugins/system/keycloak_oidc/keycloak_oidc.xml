@@ -44,6 +44,91 @@
           label="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_ISSUER_LABEL"
           description="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_ISSUER_DESC"
         />
+
+        <field
+          name="endpoint_mode"
+          type="list"
+          default="discovery"
+          label="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_ENDPOINT_MODE_LABEL"
+          description="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_ENDPOINT_MODE_DESC"
+        >
+          <option value="discovery">PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_ENDPOINT_MODE_OPTION_DISCOVERY</option>
+          <option value="static">PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_ENDPOINT_MODE_OPTION_STATIC</option>
+        </field>
+
+        <field
+          name="static_notice"
+          type="note"
+          class="alert alert-warning"
+          showon="endpoint_mode:static"
+          label="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_STATIC_NOTICE_LABEL"
+          description="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_STATIC_NOTICE_DESC"
+        />
+
+        <field
+          name="authorization_endpoint"
+          type="text"
+          showon="endpoint_mode:static"
+          label="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_AUTHORIZATION_ENDPOINT_LABEL"
+          description="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_AUTHORIZATION_ENDPOINT_DESC"
+        />
+
+        <field
+          name="token_endpoint"
+          type="text"
+          showon="endpoint_mode:static"
+          label="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_TOKEN_ENDPOINT_LABEL"
+          description="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_TOKEN_ENDPOINT_DESC"
+        />
+
+        <field
+          name="jwks_uri"
+          type="text"
+          showon="endpoint_mode:static"
+          label="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_JWKS_URI_LABEL"
+          description="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_JWKS_URI_DESC"
+        />
+
+        <field
+          name="userinfo_endpoint"
+          type="text"
+          showon="endpoint_mode:static"
+          default=""
+          label="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_USERINFO_ENDPOINT_LABEL"
+          description="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_USERINFO_ENDPOINT_DESC"
+        />
+
+        <field
+          name="end_session_endpoint"
+          type="text"
+          showon="endpoint_mode:static"
+          default=""
+          label="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_END_SESSION_ENDPOINT_LABEL"
+          description="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_END_SESSION_ENDPOINT_DESC"
+        />
+
+        <field
+          name="static_allow_different_host"
+          type="radio"
+          layout="joomla.form.field.radio.switcher"
+          default="0"
+          showon="endpoint_mode:static"
+          label="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_STATIC_ALLOW_DIFFERENT_HOST_LABEL"
+          description="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_STATIC_ALLOW_DIFFERENT_HOST_DESC"
+        >
+          <option value="0">Disabled</option>
+          <option value="1">Enabled</option>
+        </field>
+
+        <field
+          name="static_allowed_hosts"
+          type="text"
+          default=""
+          showon="endpoint_mode:static[AND]static_allow_different_host:1"
+          label="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_STATIC_ALLOWED_HOSTS_LABEL"
+          description="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_STATIC_ALLOWED_HOSTS_DESC"
+        />
+
         <field
           name="tls_ca_bundle_path"
           type="text"
