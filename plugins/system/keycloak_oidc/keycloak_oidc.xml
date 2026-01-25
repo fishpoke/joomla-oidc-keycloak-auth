@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <extension type="plugin" group="system" method="upgrade">
   <name>plg_system_keycloak_oidc</name>
-  <version>0.3</version>
+  <version>0.5</version>
   <creationDate>2026-01-20</creationDate>
   <author>CLM Projekt</author>
   <description>PLG_SYSTEM_KEYCLOAK_OIDC_XML_DESCRIPTION</description>
@@ -125,6 +125,16 @@
           showon="allow_different_endpoint_host:1"
           label="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_ALLOWED_ENDPOINT_HOSTS_LABEL"
           description="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_ALLOWED_ENDPOINT_HOSTS_DESC"
+        />
+
+        <field
+          name="static_allow_different_host"
+          type="hidden"
+        />
+
+        <field
+          name="static_allowed_hosts"
+          type="hidden"
         />
 
         <field

@@ -890,14 +890,19 @@ final class KeycloakOidc extends CMSPlugin
             $this->respondText('No end_session_endpoint configured.', 500);
         }
 
-        $postLogoutRedirect = $this->getSafeReturnUrlFromRequest();
-        if ($postLogoutRedirect === '') {
-            $postLogoutRedirect = (string) Uri::base();
-        }
+        $postLogoutRedirect = $this->getPostLogoutRedirectUri();
 
         $query = [
             'post_logout_redirect_uri' => $postLogoutRedirect,
         ];
+
+        // Compatibility: some Keycloak setups validate/expect redirect_uri on the logout endpoint.
+        $query['redirect_uri'] = $postLogoutRedirect;
+
+        $clientId = trim((string) $this->params->get('client_id', ''));
+        if ($clientId !== '') {
+            $query['client_id'] = $clientId;
+        }
 
         $idToken = (string) $session->get('kc_oidc_id_token', '');
         if ($idToken !== '') {
@@ -912,10 +917,30 @@ final class KeycloakOidc extends CMSPlugin
         }
 
         $logoutUrl = $endSessionEndpoint;
-        $logoutUrl .= (str_contains($logoutUrl, '?') ? '&' : '?') . http_build_query($query);
+        $logoutUrl .= (str_contains($logoutUrl, '?') ? '&' : '?') . http_build_query($query, '', '&', PHP_QUERY_RFC3986);
+
+        if ($this->isDebugEnabled()) {
+            $this->debugLog('LOGOUT_REDIRECT', 'redirecting to end_session_endpoint', [
+                'logout_url' => $this->safeUrlForError($logoutUrl),
+                'post_logout_redirect_uri' => $postLogoutRedirect,
+                'has_id_token_hint' => $idToken !== '' ? 1 : 0,
+                'id_token_hint_fp' => $idToken !== '' ? $this->hashSensitive($idToken) : '',
+                'client_id_set' => $clientId !== '' ? 1 : 0,
+            ]);
+        }
 
         $app->redirect($logoutUrl);
         $app->close();
+    }
+
+    private function getPostLogoutRedirectUri(): string
+    {
+        $base = $this->getPublicBaseUrlForRedirect();
+        $uri = Uri::getInstance($base);
+        $uri->setPath(rtrim($uri->getPath(), '/') . '/index.php');
+        $uri->setQuery('');
+        $uri->setFragment('');
+        return (string) $uri;
     }
 
     private function getSafeReturnUrlFromRequest(): string
