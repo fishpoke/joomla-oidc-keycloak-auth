@@ -16,6 +16,8 @@ use Joomla\CMS\User\User;
 
 final class KeycloakOidc extends CMSPlugin
 {
+    private string $debugFlowId = '';
+
     public function onAfterInitialise(): void
     {
         try {
@@ -134,6 +136,24 @@ final class KeycloakOidc extends CMSPlugin
     {
         $app = Factory::getApplication();
 
+        $debugEnabled = $this->isDebugEnabled();
+        $phpSessionBefore = [
+            'status' => session_status(),
+            'name' => session_name(),
+            'id' => session_id(),
+        ];
+        $session = null;
+        try {
+            $session = $app->getSession();
+        } catch (\Throwable $e) {
+            $session = null;
+        }
+        $phpSessionAfter = [
+            'status' => session_status(),
+            'name' => session_name(),
+            'id' => session_id(),
+        ];
+
         $method = strtolower(trim((string) $app->input->getCmd('method', '')));
         $normalizedTask = strtolower(trim((string) $task));
         if ($normalizedTask !== '' && (str_contains($normalizedTask, '.') || str_contains($normalizedTask, '/'))) {
@@ -155,6 +175,33 @@ final class KeycloakOidc extends CMSPlugin
             if ($code !== '' || $state !== '') {
                 $task = 'callback';
             }
+        }
+
+        if ($debugEnabled) {
+            $stateParam = (string) $app->input->getString('state', '');
+            if ($task === 'callback' && $stateParam !== '') {
+                $this->setDebugFlowIdFromState($stateParam);
+            } else {
+                $this->debugFlowId = $this->randomFlowId();
+            }
+
+            $this->logDebugContext('ENTRY', [
+                'client' => $app->isClient('administrator') ? 'admin' : 'site',
+                'task' => $task,
+                'method' => strtoupper((string) $app->input->server->getString('REQUEST_METHOD', '')),
+                'url' => $this->getFullRequestUrl(),
+                'http_host' => (string) $app->input->server->getString('HTTP_HOST', ''),
+                'server_name' => (string) $app->input->server->getString('SERVER_NAME', ''),
+                'https' => (string) $app->input->server->getString('HTTPS', ''),
+                'remote_addr' => (string) $app->input->server->getString('REMOTE_ADDR', ''),
+                'headers' => $this->getWhitelistedRequestHeaders(),
+                'query' => $this->getWhitelistedQueryParams(),
+                'joomla_cfg' => $this->getJoomlaConfigSnapshot(),
+                'php_session_before' => $phpSessionBefore,
+                'php_session_after' => $phpSessionAfter,
+                'joomla_session_id' => is_object($session) && method_exists($session, 'getId') ? (string) $session->getId() : '',
+                'cookies' => $this->getCookieSnapshot(),
+            ]);
         }
 
         $enabled = $app->isClient('administrator')
@@ -205,6 +252,167 @@ final class KeycloakOidc extends CMSPlugin
         return is_string($text) ? $text : '';
     }
 
+    private function isDebugEnabled(): bool
+    {
+        return (bool) $this->params->get('debug', 0);
+    }
+
+    private function randomFlowId(): string
+    {
+        try {
+            return substr(bin2hex(random_bytes(8)), 0, 8);
+        } catch (\Throwable $e) {
+            return substr(bin2hex((string) microtime(true)), 0, 8);
+        }
+    }
+
+    private function setDebugFlowIdFromState(string $state): void
+    {
+        $state = trim($state);
+        if ($state === '') {
+            return;
+        }
+        $this->debugFlowId = substr($state, 0, 8);
+    }
+
+    private function shortenSensitive(string $value, int $len = 12): string
+    {
+        $value = trim($value);
+        if ($value === '') {
+            return '';
+        }
+        return substr($value, 0, $len) . '…(' . strlen($value) . ')';
+    }
+
+    private function hashSensitive(string $value, int $len = 12): string
+    {
+        $value = trim($value);
+        if ($value === '') {
+            return '';
+        }
+        return substr(hash('sha256', $value), 0, $len);
+    }
+
+    private function debugLog(string $stage, string $message, array $context = []): void
+    {
+        if (!$this->isDebugEnabled()) {
+            return;
+        }
+
+        $flow = $this->debugFlowId !== '' ? $this->debugFlowId : '-';
+        $line = 'DBG stage=' . $stage . ' flow_id=' . $flow . ' ' . $message;
+        if ($context !== []) {
+            $json = json_encode($context);
+            if (is_string($json) && $json !== '') {
+                $line .= ' | ctx=' . $json;
+            }
+        }
+
+        try {
+            Log::add($line, Log::DEBUG, 'keycloak_oidc');
+        } catch (\Throwable $e) {
+        }
+        error_log('[keycloak_oidc] ' . $line);
+    }
+
+    private function logDebugContext(string $stage, array $context): void
+    {
+        $this->debugLog($stage, 'ts=' . gmdate('c'), $context);
+    }
+
+    private function getWhitelistedRequestHeaders(): array
+    {
+        $app = Factory::getApplication();
+
+        $get = static function (string $serverKey) use ($app): string {
+            return (string) $app->input->server->getString($serverKey, '');
+        };
+
+        return [
+            'host' => $get('HTTP_HOST'),
+            'x_forwarded_proto' => $get('HTTP_X_FORWARDED_PROTO'),
+            'x_forwarded_host' => $get('HTTP_X_FORWARDED_HOST'),
+            'x_forwarded_port' => $get('HTTP_X_FORWARDED_PORT'),
+            'referer' => $get('HTTP_REFERER'),
+            'user_agent' => $get('HTTP_USER_AGENT'),
+        ];
+    }
+
+    private function getWhitelistedQueryParams(): array
+    {
+        $app = Factory::getApplication();
+
+        $state = (string) $app->input->getString('state', '');
+        $code = (string) $app->input->getString('code', '');
+
+        return [
+            'state_len' => $state !== '' ? strlen($state) : 0,
+            'state_fp' => $state !== '' ? $this->hashSensitive($state) : '',
+            'session_state_len' => strlen((string) $app->input->getString('session_state', '')),
+            'iss' => (string) $app->input->getString('iss', ''),
+            'code_short' => $code !== '' ? $this->shortenSensitive($code, 12) : '',
+        ];
+    }
+
+    private function getJoomlaConfigSnapshot(): array
+    {
+        $cfg = null;
+        try {
+            $cfg = Factory::getConfig();
+        } catch (\Throwable $e) {
+            $cfg = null;
+        }
+
+        $get = static function ($cfg, string $key): string {
+            try {
+                return is_object($cfg) ? (string) $cfg->get($key, '') : '';
+            } catch (\Throwable $e) {
+                return '';
+            }
+        };
+
+        return [
+            'cookie_domain' => $get($cfg, 'cookie_domain'),
+            'cookie_path' => $get($cfg, 'cookie_path'),
+            'cookie_samesite' => $get($cfg, 'cookie_samesite'),
+            'force_ssl' => $get($cfg, 'force_ssl'),
+            'live_site' => $get($cfg, 'live_site'),
+        ];
+    }
+
+    private function getCookieSnapshot(): array
+    {
+        $cookies = isset($_COOKIE) && is_array($_COOKIE) ? array_keys($_COOKIE) : [];
+
+        $sessionName = '';
+        try {
+            $sessionName = session_name();
+        } catch (\Throwable $e) {
+            $sessionName = '';
+        }
+
+        $hasSessionCookie = $sessionName !== '' && isset($_COOKIE[$sessionName]);
+
+        return [
+            'count' => count($cookies),
+            'session_cookie_name' => $sessionName,
+            'has_session_cookie' => $hasSessionCookie ? 1 : 0,
+            'names_sample' => array_slice($cookies, 0, 10),
+        ];
+    }
+
+    private function getFullRequestUrl(): string
+    {
+        $app = Factory::getApplication();
+        $scheme = ((string) $app->input->server->getString('HTTPS', '') !== '' && (string) $app->input->server->getString('HTTPS', '') !== 'off') ? 'https' : 'http';
+        $host = (string) $app->input->server->getString('HTTP_HOST', '');
+        $uri = (string) $app->input->server->getString('REQUEST_URI', '');
+        if ($host === '') {
+            return $uri;
+        }
+        return $scheme . '://' . $host . $uri;
+    }
+
     private function handleLogin(): void
     {
         $app = Factory::getApplication();
@@ -218,20 +426,70 @@ final class KeycloakOidc extends CMSPlugin
             $this->respondText('Missing configuration: issuer and/or client_id.', 400);
         }
 
+        $state = $this->base64UrlEncode(random_bytes(32));
+        $nonce = $this->base64UrlEncode(random_bytes(32));
+
+        if ($this->isDebugEnabled()) {
+            $prevFlowId = $this->debugFlowId;
+            $this->setDebugFlowIdFromState($state);
+            if ($prevFlowId !== '' && $prevFlowId !== $this->debugFlowId) {
+                $this->debugLog('FLOW_ID_UPDATE', 'login flow_id updated from entry flow_id to state-derived flow_id', [
+                    'prev_flow_id' => $prevFlowId,
+                    'new_flow_id' => $this->debugFlowId,
+                ]);
+            }
+        }
+
         $endpoints = $this->resolveEndpoints();
         $authorizationEndpoint = $endpoints->getAuthorizationEndpoint();
 
-        $state = $this->base64UrlEncode(random_bytes(32));
-        $nonce = $this->base64UrlEncode(random_bytes(32));
+        if ($this->isDebugEnabled()) {
+            $this->debugLog('LOGIN_PREPARE', 'issuer=' . $this->safeUrlForError($issuer), [
+                'session_id' => method_exists($session, 'getId') ? (string) $session->getId() : '',
+                'http_host' => (string) $app->input->server->getString('HTTP_HOST', ''),
+                'state_fp' => $this->hashSensitive($state),
+                'nonce_fp' => $this->hashSensitive($nonce),
+                'state_len' => strlen($state),
+                'nonce_len' => strlen($nonce),
+            ]);
+        }
 
         $session->set('kc_oidc_state', $state);
         $session->set('kc_oidc_nonce', $nonce);
         $session->set('kc_oidc_issuer', $issuer);
         $session->set('kc_oidc_jit_attempted_for_state', null);
 
+        if ($this->isDebugEnabled()) {
+            $session->set('kc_oidc_host', (string) $app->input->server->getString('HTTP_HOST', ''));
+            $session->set('kc_oidc_time', (string) gmdate('c'));
+
+            $storedIssuer = (string) $session->get('kc_oidc_issuer', '');
+            $storedState = (string) $session->get('kc_oidc_state', '');
+            $storedNonce = (string) $session->get('kc_oidc_nonce', '');
+
+            $this->debugLog('LOGIN_SESSION_SET', 'stored session values (kc_oidc_issuer/kc_oidc_state/kc_oidc_nonce/kc_oidc_host/kc_oidc_time)', [
+                'has_issuer' => $storedIssuer !== '' ? 1 : 0,
+                'has_state' => $storedState !== '' ? 1 : 0,
+                'has_nonce' => $storedNonce !== '' ? 1 : 0,
+                'state_fp' => $storedState !== '' ? $this->hashSensitive($storedState) : '',
+                'nonce_fp' => $storedNonce !== '' ? $this->hashSensitive($storedNonce) : '',
+                'state_len' => $storedState !== '' ? strlen($storedState) : 0,
+                'nonce_len' => $storedNonce !== '' ? strlen($storedNonce) : 0,
+                'host_saved' => (string) $session->get('kc_oidc_host', '') !== '' ? 1 : 0,
+                'time_saved' => (string) $session->get('kc_oidc_time', '') !== '' ? 1 : 0,
+                'cookies' => $this->getCookieSnapshot(),
+            ]);
+        }
+
         try {
             if (method_exists($session, 'close')) {
+                if ($this->isDebugEnabled()) {
+                    $this->debugLog('LOGIN_SESSION_CLOSE', 'closing session');
+                }
                 $session->close();
+                if ($this->isDebugEnabled()) {
+                    $this->debugLog('LOGIN_SESSION_CLOSE', 'session closed');
+                }
             }
         } catch (\Throwable $e) {
         }
@@ -258,6 +516,13 @@ final class KeycloakOidc extends CMSPlugin
         }
         $authUrl .= (str_contains($authUrl, '?') ? '&' : '?') . http_build_query($authQuery);
 
+        if ($this->isDebugEnabled()) {
+            $this->debugLog('LOGIN_REDIRECT', 'redirecting to authorization endpoint', [
+                'redirect_uri' => $redirectUri,
+                'auth_url' => $this->safeUrlForError($authUrl),
+            ]);
+        }
+
         $app->redirect($authUrl);
         $app->close();
     }
@@ -267,9 +532,45 @@ final class KeycloakOidc extends CMSPlugin
         $app = Factory::getApplication();
         $session = $app->getSession();
 
+        $stateParam = (string) $app->input->getString('state', '');
+        if ($this->isDebugEnabled() && $stateParam !== '') {
+            $this->setDebugFlowIdFromState($stateParam);
+        }
+
+        if ($this->isDebugEnabled()) {
+            $this->debugLog('CALLBACK_ENTRY', 'callback entered', [
+                'session_id' => method_exists($session, 'getId') ? (string) $session->getId() : '',
+                'php_session_id' => session_id(),
+                'cookies' => $this->getCookieSnapshot(),
+                'state_param_len' => $stateParam !== '' ? strlen($stateParam) : 0,
+                'state_param_fp' => $stateParam !== '' ? $this->hashSensitive($stateParam) : '',
+            ]);
+        }
+
         $issuer = (string) $session->get('kc_oidc_issuer', '');
         $expectedState = (string) $session->get('kc_oidc_state', '');
         $expectedNonce = (string) $session->get('kc_oidc_nonce', '');
+
+        if ($this->isDebugEnabled()) {
+            $savedHost = (string) $session->get('kc_oidc_host', '');
+            $savedTime = (string) $session->get('kc_oidc_time', '');
+            $currentHost = (string) $app->input->server->getString('HTTP_HOST', '');
+
+            $this->debugLog('CALLBACK_SESSION_SNAPSHOT', 'session snapshot at callback', [
+                'has_issuer' => $issuer !== '' ? 1 : 0,
+                'has_state' => $expectedState !== '' ? 1 : 0,
+                'has_nonce' => $expectedNonce !== '' ? 1 : 0,
+                'expected_state_fp' => $expectedState !== '' ? $this->hashSensitive($expectedState) : '',
+                'expected_nonce_fp' => $expectedNonce !== '' ? $this->hashSensitive($expectedNonce) : '',
+                'saved_host' => $savedHost,
+                'current_host' => $currentHost,
+                'host_matches' => ($savedHost !== '' && $currentHost !== '' && strtolower($savedHost) === strtolower($currentHost)) ? 1 : 0,
+                'saved_time' => $savedTime,
+                'state_param_present' => $stateParam !== '' ? 1 : 0,
+                'state_param_fp' => $stateParam !== '' ? $this->hashSensitive($stateParam) : '',
+                'state_param_len' => $stateParam !== '' ? strlen($stateParam) : 0,
+            ]);
+        }
 
         $issuerCfg = $this->normalizeIssuer(trim((string) $this->params->get('issuer', '')));
         if ($issuerCfg === '' || $this->normalizeIssuer($issuer) !== $issuerCfg) {
@@ -283,10 +584,33 @@ final class KeycloakOidc extends CMSPlugin
             $this->respondText('OIDC login failed.', 400);
         }
 
-        $state = $app->input->getString('state', '');
+        $state = $stateParam;
         $code = $app->input->getString('code', '');
 
         if ($issuer === '' || $expectedState === '' || $expectedNonce === '') {
+            if ($this->isDebugEnabled()) {
+                $savedHost = (string) $session->get('kc_oidc_host', '');
+                $savedTime = (string) $session->get('kc_oidc_time', '');
+                $currentHost = (string) $app->input->server->getString('HTTP_HOST', '');
+
+                $this->debugLog('CALLBACK_SESSION_MISSING', 'missing session data at callback', [
+                    'has_issuer' => $issuer !== '' ? 1 : 0,
+                    'has_state' => $expectedState !== '' ? 1 : 0,
+                    'has_nonce' => $expectedNonce !== '' ? 1 : 0,
+                    'saved_host' => $savedHost,
+                    'current_host' => $currentHost,
+                    'host_matches' => ($savedHost !== '' && $currentHost !== '' && strtolower($savedHost) === strtolower($currentHost)) ? 1 : 0,
+                    'saved_time' => $savedTime,
+                    'state_param_present' => $state !== '' ? 1 : 0,
+                    'state_param_len' => $state !== '' ? strlen($state) : 0,
+                    'possible_causes' => 'cookie missing, samesite strict, different host, session not saved',
+                ]);
+
+                if ($state !== '' && ($issuer === '' && $expectedState === '' && $expectedNonce === '')) {
+                    $this->debugLog('CALLBACK_SESSION_LOST', 'SESSION LOST BETWEEN LOGIN AND CALLBACK');
+                }
+            }
+
             $this->auditLog(
                 'LOGIN_DENY missing session data issuer=' . $this->normalizeIssuer($issuer)
                 . ' has_issuer=' . ($issuer !== '' ? '1' : '0')
@@ -909,6 +1233,15 @@ final class KeycloakOidc extends CMSPlugin
         error_log('[keycloak_oidc] ' . $message);
     }
 
+    private function logHttpExchange(string $stage, array $data): void
+    {
+        if (!$this->isDebugEnabled()) {
+            return;
+        }
+
+        $this->debugLog($stage, 'http', $data);
+    }
+
     private function markSessionAuthenticated(int $userId): void
     {
         try {
@@ -1176,6 +1509,11 @@ final class KeycloakOidc extends CMSPlugin
                 curl_setopt($ch, CURLOPT_CAINFO, $caBundle);
             }
         }
+
+        $wantCertInfo = $this->isDebugEnabled() && defined('CURLOPT_CERTINFO') && defined('CURLINFO_CERTINFO');
+        if ($wantCertInfo) {
+            curl_setopt($ch, CURLOPT_CERTINFO, true);
+        }
 	    curl_setopt(
 	        $ch,
 	        CURLOPT_HEADERFUNCTION,
@@ -1197,14 +1535,117 @@ final class KeycloakOidc extends CMSPlugin
             curl_setopt($ch, CURLOPT_POSTFIELDS, $body ?? '');
         }
 
+        if ($this->isDebugEnabled()) {
+            $headerNames = [];
+            $hasAuth = 0;
+            foreach ($effectiveHeaders as $h) {
+                $parts = explode(':', (string) $h, 2);
+                $name = strtolower(trim((string) ($parts[0] ?? '')));
+                if ($name !== '') {
+                    $headerNames[] = $name;
+                    if ($name === 'authorization') {
+                        $hasAuth = 1;
+                    }
+                }
+            }
+
+            $bodyInfo = [
+                'len' => is_string($body) ? strlen($body) : 0,
+                'keys' => [],
+            ];
+            if (is_string($body) && $body !== '' && str_contains($body, '=')) {
+                $parsed = [];
+                parse_str($body, $parsed);
+                if (is_array($parsed)) {
+                    $keys = array_keys($parsed);
+                    sort($keys);
+                    $bodyInfo['keys'] = $keys;
+                    if (isset($parsed['code']) && is_string($parsed['code'])) {
+                        $bodyInfo['code_short'] = $this->shortenSensitive($parsed['code'], 12);
+                    }
+                    if (isset($parsed['client_id']) && is_string($parsed['client_id'])) {
+                        $bodyInfo['client_id'] = $parsed['client_id'];
+                    }
+                    if (isset($parsed['redirect_uri']) && is_string($parsed['redirect_uri'])) {
+                        $bodyInfo['redirect_uri'] = $parsed['redirect_uri'];
+                    }
+                }
+            }
+
+            $this->logHttpExchange('HTTP_REQUEST', [
+                'method' => $method,
+                'url' => $this->safeUrlForError($url),
+                'tls_verify' => $tlsVerify ? 1 : 0,
+                'tls_insecure_skip_verify' => $legacyInsecureSkipVerify ? 1 : 0,
+                'ca_bundle_set' => (isset($caBundle) && (string) $caBundle !== '') ? 1 : 0,
+                'host_header' => $hostHeader !== null ? $hostHeader : '',
+                'forwarded' => is_array($forwarded) ? $forwarded : [],
+                'timeout' => 15,
+                'headers' => [
+                    'has_authorization' => $hasAuth,
+                    'names' => array_values(array_unique($headerNames)),
+                ],
+                'body' => $bodyInfo,
+            ]);
+        }
+
         $response = curl_exec($ch);
+        $curlErrno = curl_errno($ch);
+        $curlErr = $curlErrno !== 0 ? curl_error($ch) : '';
         if ($response === false) {
             $err = curl_error($ch);
+            if ($this->isDebugEnabled()) {
+                $this->logHttpExchange('HTTP_ERROR', [
+                    'method' => $method,
+                    'url' => $this->safeUrlForError($url),
+                    'curl_errno' => $curlErrno,
+                    'curl_error' => $err,
+                ]);
+            }
             curl_close($ch);
             throw new \RuntimeException('HTTP request failed: ' . $err);
         }
 
         $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+
+        if ($wantCertInfo) {
+            $certInfo = curl_getinfo($ch, CURLINFO_CERTINFO);
+            if (is_array($certInfo)) {
+                $subject = '';
+                $issuer = '';
+                foreach ($certInfo as $entry) {
+                    if (!is_array($entry)) {
+                        continue;
+                    }
+                    foreach ($entry as $line) {
+                        $line = (string) $line;
+                        if ($subject === '' && stripos($line, 'subject:') !== false) {
+                            $subject = trim($line);
+                        }
+                        if ($issuer === '' && stripos($line, 'issuer:') !== false) {
+                            $issuer = trim($line);
+                        }
+                    }
+                }
+                if ($subject !== '' || $issuer !== '') {
+                    $this->logHttpExchange('HTTP_CERT', [
+                        'url' => $this->safeUrlForError($url),
+                        'subject' => $subject,
+                        'issuer' => $issuer,
+                    ]);
+                }
+            }
+        }
+
+        if ($this->isDebugEnabled()) {
+            $this->logHttpExchange('HTTP_RESPONSE', [
+                'method' => $method,
+                'url' => $this->safeUrlForError($url),
+                'status' => $status,
+                'curl_errno' => $curlErrno,
+                'curl_error' => $curlErr,
+            ]);
+        }
         curl_close($ch);
 
         if ($status < 200 || $status >= 300) {
@@ -1228,6 +1669,20 @@ final class KeycloakOidc extends CMSPlugin
                 if (is_string($snippet) && $snippet !== '') {
                     $details = substr($snippet, 0, 300);
                 }
+            }
+
+            if ($this->isDebugEnabled()) {
+                $snippet200 = trim((string) $response);
+                $snippet200 = preg_replace('/\s+/', ' ', $snippet200);
+                $snippet200 = is_string($snippet200) ? substr($snippet200, 0, 200) : '';
+                $this->logHttpExchange('HTTP_NON_2XX', [
+                    'method' => $method,
+                    'url' => $this->safeUrlForError($url),
+                    'status' => $status,
+                    'curl_errno' => $curlErrno,
+                    'curl_error' => $curlErr,
+                    'body_snippet' => $snippet200,
+                ]);
             }
 
             $safeUrl = $this->safeUrlForError($url);
