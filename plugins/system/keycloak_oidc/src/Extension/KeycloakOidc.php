@@ -5,6 +5,9 @@ namespace Fishpoke\Plugin\System\KeycloakOidc\Extension;
 
 defined('_JEXEC') or die;
 
+use Fishpoke\Plugin\System\KeycloakOidc\Oidc\EndpointResolver;
+use Fishpoke\Plugin\System\KeycloakOidc\Oidc\EndpointSet;
+use Fishpoke\Plugin\System\KeycloakOidc\Oidc\JwtValidator;
 use Joomla\CMS\Factory;
 use Joomla\CMS\Log\Log;
 use Joomla\CMS\Plugin\CMSPlugin;
@@ -138,8 +141,8 @@ final class KeycloakOidc extends CMSPlugin
             $normalizedTask = is_array($parts) ? (string) end($parts) : '';
         }
 
-        if (!in_array($normalizedTask, ['login', 'logout', 'callback'], true)
-            && in_array($method, ['login', 'logout', 'callback'], true)
+        if (!in_array($normalizedTask, ['login', 'logout', 'callback', 'diagnostics'], true)
+            && in_array($method, ['login', 'logout', 'callback', 'diagnostics'], true)
         ) {
             $normalizedTask = $method;
         }
@@ -178,6 +181,11 @@ final class KeycloakOidc extends CMSPlugin
                 return;
             }
 
+            if ($task === 'diagnostics') {
+                $this->handleDiagnostics();
+                return;
+            }
+
             $this->respondText('Unknown task.', 400);
         } catch (\Throwable $e) {
             $this->auditLog(
@@ -210,11 +218,8 @@ final class KeycloakOidc extends CMSPlugin
             $this->respondText('Missing configuration: issuer and/or client_id.', 400);
         }
 
-        $discovery = $this->getDiscovery($issuer);
-        $authorizationEndpoint = (string) ($discovery['authorization_endpoint'] ?? '');
-        if ($authorizationEndpoint === '') {
-            $this->respondText('OIDC discovery did not provide authorization_endpoint.', 500);
-        }
+        $endpoints = $this->resolveEndpoints();
+        $authorizationEndpoint = $endpoints->getAuthorizationEndpoint();
 
         $state = $this->base64UrlEncode(random_bytes(32));
         $nonce = $this->base64UrlEncode(random_bytes(32));
@@ -266,6 +271,12 @@ final class KeycloakOidc extends CMSPlugin
         $expectedState = (string) $session->get('kc_oidc_state', '');
         $expectedNonce = (string) $session->get('kc_oidc_nonce', '');
 
+        $issuerCfg = $this->normalizeIssuer(trim((string) $this->params->get('issuer', '')));
+        if ($issuerCfg === '' || $this->normalizeIssuer($issuer) !== $issuerCfg) {
+            $this->auditLog('LOGIN_DENY issuer mismatch has_session_issuer=' . ($issuer !== '' ? '1' : '0'));
+            $this->respondText('Issuer mismatch. Start login again.', 400);
+        }
+
         $error = $app->input->getString('error', '');
         if ($error !== '') {
             $this->auditLog('OIDC_ERROR error=' . $error);
@@ -293,13 +304,9 @@ final class KeycloakOidc extends CMSPlugin
             $this->respondText('Missing code.', 400);
         }
 
-        $discovery = $this->getDiscovery($issuer);
-        $tokenEndpoint = (string) ($discovery['token_endpoint'] ?? '');
-        $userinfoEndpoint = (string) ($discovery['userinfo_endpoint'] ?? '');
-
-        if ($tokenEndpoint === '' || $userinfoEndpoint === '') {
-            $this->respondText('OIDC discovery did not provide token/userinfo endpoint.', 500);
-        }
+        $endpoints = $this->resolveEndpoints();
+        $tokenEndpoint = $endpoints->getTokenEndpoint();
+        $userinfoEndpoint = $endpoints->getUserinfoEndpoint();
 
         $clientId = trim((string) $this->params->get('client_id', ''));
         $clientSecret = (string) $this->params->get('client_secret', '');
@@ -341,26 +348,23 @@ final class KeycloakOidc extends CMSPlugin
         $accessToken = (string) ($tokenResponse['access_token'] ?? '');
         $idToken = (string) ($tokenResponse['id_token'] ?? '');
 
-        $claims = [];
-        if ($idToken !== '') {
-            $claims = $this->decodeJwtPayload($idToken);
+        if ($idToken === '') {
+            $this->respondText('Token endpoint did not return id_token.', 500);
         }
 
         if ($accessToken === '') {
             $this->respondText('Token endpoint did not return access_token.', 500);
         }
 
-        if ($idToken !== '') {
-            $nonce = (string) ($claims['nonce'] ?? '');
-            if ($nonce === '' || !hash_equals($expectedNonce, $nonce)) {
-                $this->respondText('Invalid nonce.', 400);
-            }
-        }
+        $claims = $this->getJwtValidator()->validateIdToken($idToken, $endpoints, $clientId, $expectedNonce);
 
-        $userinfo = $this->httpGetJson($userinfoEndpoint, [
-            'Accept: application/json',
-            'Authorization: Bearer ' . $accessToken,
-        ]);
+        $userinfo = [];
+        if ($userinfoEndpoint !== '') {
+            $userinfo = $this->httpGetJson($userinfoEndpoint, [
+                'Accept: application/json',
+                'Authorization: Bearer ' . $accessToken,
+            ]);
+        }
 
         $issuerNorm = $this->normalizeIssuer($issuer);
         $sub = (string) ($userinfo['sub'] ?? '');
@@ -556,15 +560,10 @@ final class KeycloakOidc extends CMSPlugin
         $app = Factory::getApplication();
         $session = $app->getSession();
 
-        $issuer = trim((string) $this->params->get('issuer', ''));
-        if ($issuer === '') {
-            $this->respondText('Missing configuration: issuer.', 400);
-        }
-
-        $discovery = $this->getDiscovery($issuer);
-        $endSessionEndpoint = (string) ($discovery['end_session_endpoint'] ?? '');
+        $endpoints = $this->resolveEndpoints();
+        $endSessionEndpoint = $endpoints->getEndSessionEndpoint();
         if ($endSessionEndpoint === '') {
-            $this->respondText('OIDC discovery did not provide end_session_endpoint.', 500);
+            $this->respondText('No end_session_endpoint configured.', 500);
         }
 
         $postLogoutRedirect = $this->getSafeReturnUrlFromRequest();
@@ -982,34 +981,161 @@ final class KeycloakOidc extends CMSPlugin
         return $discovery;
     }
 
+    private function resolveEndpoints(): EndpointSet
+    {
+        try {
+            $resolver = new EndpointResolver(
+                $this->params,
+                fn (string $url, array $headers = []): array => $this->httpGetJson($url, $headers),
+                function (string $message): void {
+                    $this->auditLog($message);
+                }
+            );
+            return $resolver->resolve();
+        } catch (\Throwable $e) {
+            $mode = strtolower(trim((string) $this->params->get('endpoint_mode', 'discovery')));
+            $issuer = $this->normalizeIssuer((string) $this->params->get('issuer', ''));
+            $tlsVerify = (bool) $this->params->get('tls_verify', 1);
+            $this->auditLog(
+                'ERROR resolve_endpoints mode=' . $mode
+                . ' issuer=' . $this->safeUrlForError($issuer)
+                . ' tls_verify=' . ($tlsVerify ? '1' : '0')
+                . ' err=' . $this->redactSecrets((string) $e->getMessage())
+            );
+            throw $e;
+        }
+    }
+
+    private function getJwtValidator(): JwtValidator
+    {
+        return new JwtValidator(fn (string $url, array $headers = []): array => $this->httpGetJson($url, $headers));
+    }
+
+    private function handleDiagnostics(): void
+    {
+        $app = Factory::getApplication();
+
+        if (!$app->isClient('administrator')) {
+            $this->respondText('Forbidden.', 403);
+        }
+
+        $identity = method_exists($app, 'getIdentity') ? $app->getIdentity() : null;
+        if (!is_object($identity) || !method_exists($identity, 'authorise') || !$identity->authorise('core.admin')) {
+            $this->respondText('Forbidden.', 403);
+        }
+
+        try {
+            $endpoints = $this->resolveEndpoints();
+            $jwks = $this->httpGetJson($endpoints->getJwksUri(), ['Accept: application/json']);
+
+            $keyCount = 0;
+            if (isset($jwks['keys']) && is_array($jwks['keys'])) {
+                $keyCount = count($jwks['keys']);
+            }
+
+            $out = [
+                'ok' => true,
+                'mode' => $endpoints->getMode(),
+                'issuer' => $endpoints->getIssuer(),
+                'endpoints' => [
+                    'authorization_endpoint' => $endpoints->getAuthorizationEndpoint(),
+                    'token_endpoint' => $endpoints->getTokenEndpoint(),
+                    'jwks_uri' => $endpoints->getJwksUri(),
+                    'userinfo_endpoint' => $endpoints->getUserinfoEndpoint(),
+                    'end_session_endpoint' => $endpoints->getEndSessionEndpoint(),
+                ],
+                'jwks' => [
+                    'key_count' => $keyCount,
+                ],
+                'tls' => [
+                    'tls_verify' => (bool) $this->params->get('tls_verify', 1),
+                    'tls_ca_bundle_path_set' => trim((string) $this->params->get('tls_ca_bundle_path', '')) !== '',
+                    'tls_insecure_skip_verify' => (bool) $this->params->get('tls_insecure_skip_verify', 0),
+                ],
+            ];
+
+            $this->respondJson($out, 200);
+        } catch (\Throwable $e) {
+            $this->respondJson([
+                'ok' => false,
+                'error' => $this->redactSecrets((string) $e->getMessage()),
+            ], 500);
+        }
+    }
+
+    private function respondJson(array $data, int $statusCode): void
+    {
+        http_response_code($statusCode);
+        header('Content-Type: application/json; charset=utf-8');
+        $json = json_encode($data);
+        echo is_string($json) ? $json : '{"ok":false}';
+        Factory::getApplication()->close();
+    }
+
     private function httpGetJson(string $url, array $headers = []): array
     {
+        $originalUrl = $url;
         $hostHeader = null;
         $forwarded = null;
         $url = $this->toInternalUrl($url, $hostHeader, $forwarded);
-        $result = $this->httpRequest('GET', $url, null, $headers, $hostHeader, $forwarded);
-        $json = json_decode($result, true);
+        $result = $this->httpRequestDetailed('GET', $url, null, $headers, $hostHeader, $forwarded);
+        $json = json_decode($result['body'], true);
         if (!is_array($json)) {
-            throw new \RuntimeException('Invalid JSON response.');
+            $contentType = '';
+            if (isset($result['headers']['content-type'][0])) {
+                $contentType = (string) $result['headers']['content-type'][0];
+            }
+
+            $snippet = trim((string) $result['body']);
+            $snippet = preg_replace('/\s+/', ' ', $snippet);
+            $snippet = is_string($snippet) ? substr($snippet, 0, 200) : '';
+
+            throw new \RuntimeException(
+                'Invalid JSON response. status=' . (int) $result['status']
+                . ' url=' . $this->safeUrlForError($originalUrl)
+                . ($contentType !== '' ? (' content-type=' . $contentType) : '')
+                . ($snippet !== '' ? (': ' . $snippet) : '')
+            );
         }
         return $json;
     }
 
     private function httpPostFormJson(string $url, array $data, array $headers = []): array
     {
+        $originalUrl = $url;
         $hostHeader = null;
         $forwarded = null;
         $url = $this->toInternalUrl($url, $hostHeader, $forwarded);
         $body = http_build_query($data);
-        $result = $this->httpRequest('POST', $url, $body, $headers, $hostHeader, $forwarded);
-        $json = json_decode($result, true);
+        $result = $this->httpRequestDetailed('POST', $url, $body, $headers, $hostHeader, $forwarded);
+        $json = json_decode($result['body'], true);
         if (!is_array($json)) {
-            throw new \RuntimeException('Invalid JSON response.');
+            $contentType = '';
+            if (isset($result['headers']['content-type'][0])) {
+                $contentType = (string) $result['headers']['content-type'][0];
+            }
+
+            $snippet = trim((string) $result['body']);
+            $snippet = preg_replace('/\s+/', ' ', $snippet);
+            $snippet = is_string($snippet) ? substr($snippet, 0, 200) : '';
+
+            throw new \RuntimeException(
+                'Invalid JSON response. status=' . (int) $result['status']
+                . ' url=' . $this->safeUrlForError($originalUrl)
+                . ($contentType !== '' ? (' content-type=' . $contentType) : '')
+                . ($snippet !== '' ? (': ' . $snippet) : '')
+            );
         }
         return $json;
     }
 
     private function httpRequest(string $method, string $url, ?string $body, array $headers, ?string $hostHeader, ?array $forwarded): string
+    {
+        $result = $this->httpRequestDetailed($method, $url, $body, $headers, $hostHeader, $forwarded);
+        return (string) $result['body'];
+    }
+
+    private function httpRequestDetailed(string $method, string $url, ?string $body, array $headers, ?string $hostHeader, ?array $forwarded): array
     {
         if (!function_exists('curl_init')) {
             throw new \RuntimeException('PHP curl extension is required.');
@@ -1110,7 +1236,11 @@ final class KeycloakOidc extends CMSPlugin
             );
         }
 
-        return (string) $response;
+        return [
+            'status' => $status,
+            'headers' => $responseHeaders,
+            'body' => (string) $response,
+        ];
     }
 
     private function safeUrlForError(string $url): string
