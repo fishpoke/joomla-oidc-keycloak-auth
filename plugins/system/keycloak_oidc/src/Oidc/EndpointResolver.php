@@ -40,13 +40,19 @@ final class EndpointResolver
         }
 
         $cacheKey = $this->getCacheKey($mode);
-        $cached = $this->getCache()->get($cacheKey);
-        if (is_array($cached)) {
-            return $this->endpointSetFromArray($cached);
-        }
+        $cache = $this->getCache();
 
-        $resolved = $mode === self::MODE_STATIC ? $this->resolveStatic($issuer) : $this->resolveDiscovery($issuer);
-        $this->getCache()->store($resolved, $cacheKey);
+        $resolved = $cache->get(
+            function () use ($mode, $issuer): array {
+                return $mode === self::MODE_STATIC ? $this->resolveStatic($issuer) : $this->resolveDiscovery($issuer);
+            },
+            [],
+            $cacheKey
+        );
+
+        if (!is_array($resolved)) {
+            throw new \RuntimeException('Failed to resolve endpoints (invalid cache result).');
+        }
 
         ($this->log)(
             'RESOLVE endpoints mode=' . $mode
