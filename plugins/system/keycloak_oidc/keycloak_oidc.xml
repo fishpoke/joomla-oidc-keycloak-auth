@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <extension type="plugin" group="system" method="upgrade">
   <name>plg_system_keycloak_oidc</name>
-  <version>0.2</version>
+  <version>0.3</version>
   <creationDate>2026-01-20</creationDate>
   <author>CLM Projekt</author>
   <description>PLG_SYSTEM_KEYCLOAK_OIDC_XML_DESCRIPTION</description>

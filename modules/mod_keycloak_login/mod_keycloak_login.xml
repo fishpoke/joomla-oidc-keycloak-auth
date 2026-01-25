@@ -3,7 +3,7 @@
     <name>MOD_KEYCLOAK_LOGIN</name>
     <author>CLM Projekt</author>
     <creationDate>2026-01-20</creationDate>
-    <version>0.2</version>
+    <version>0.3</version>
     <description>MOD_KEYCLOAK_LOGIN_XML_DESCRIPTION</description>
 
     <files>
@@ -106,7 +106,7 @@
 
                 <field
                     name="info_article_id"
-                    type="articlesearch"
+                    type="modal_article"
                     default="0"
                     label="MOD_KEYCLOAK_LOGIN_FIELD_INFO_ARTICLE_ID_LABEL"
                     description="MOD_KEYCLOAK_LOGIN_FIELD_INFO_ARTICLE_ID_DESC"
