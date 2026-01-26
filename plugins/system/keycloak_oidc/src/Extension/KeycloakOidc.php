@@ -312,10 +312,21 @@ final class KeycloakOidc extends CMSPlugin
 
             $this->respondText('Unknown task.', 400);
         } catch (\Throwable $e) {
+            $flow = $this->debugFlowId !== '' ? $this->debugFlowId : '-';
+            $safeMessage = $this->redactSecrets((string) $e->getMessage());
             $this->auditLog(
-                'ERROR handleAjaxTask exception=' . get_class($e) . ' message=' . $this->redactSecrets((string) $e->getMessage())
+                'ERROR handleAjaxTask flow_id=' . $flow . ' exception=' . get_class($e) . ' message=' . $safeMessage
             );
-            $this->respondText('Keycloak OIDC error.', 500);
+
+            if ($this->isDebugEnabled()) {
+                $msg = trim($safeMessage);
+                if ($msg !== '') {
+                    $msg = substr($msg, 0, 300);
+                    $this->respondText('Keycloak OIDC error (flow_id=' . $flow . '): ' . $msg, 500);
+                }
+            }
+
+            $this->respondText('Keycloak OIDC error. (flow_id=' . $flow . ')', 500);
         }
     }
 
