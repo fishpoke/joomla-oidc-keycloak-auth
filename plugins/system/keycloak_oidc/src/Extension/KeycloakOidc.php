@@ -844,13 +844,18 @@ final class KeycloakOidc extends CMSPlugin
                 $this->respondAuthDeniedContactAdmin();
             }
 
-            $linksRepo->updateOnLoginById(
-                (int) ($link['id'] ?? 0),
-                $email !== '' ? $email : null,
-                $emailVerified,
-                $realm !== '' ? $realm : null,
-                $nowUtc
-            );
+            try {
+                $linksRepo->updateOnLoginById(
+                    (int) ($link['id'] ?? 0),
+                    $email !== '' ? $email : null,
+                    $emailVerified,
+                    $realm !== '' ? $realm : null,
+                    $nowUtc
+                );
+            } catch (\Throwable $e) {
+                $this->auditLog('DB_ERROR links_update_failed issuer_fp=' . $issuerFp . ' sub_fp=' . $subFp . ' link_id=' . (int) ($link['id'] ?? 0) . ' message=' . $this->redactSecrets((string) $e->getMessage()));
+                $this->respondText('OIDC login failed: database error while updating link. Contact an administrator.', 500);
+            }
 
             if ($this->isDebugEnabled()) {
                 $this->debugLog('LINK_UPDATE', 'updated last_login', [
@@ -917,8 +922,12 @@ final class KeycloakOidc extends CMSPlugin
                         $nowUtc
                     );
                 } catch (\Throwable $e) {
-                    $this->auditLog('DB_ERROR links_update_failed issuer_fp=' . $issuerFp . ' sub_fp=' . $subFp . ' message=' . $e->getMessage());
-                    $this->respondText('OIDC login failed: database schema missing (#__keycloak_oidc_links). Install/update the plugin to create the table.', 500);
+                    $msg = $this->redactSecrets((string) $e->getMessage());
+                    $this->auditLog('DB_ERROR links_create_failed issuer_fp=' . $issuerFp . ' sub_fp=' . $subFp . ' user_id=' . (int) $userId . ' message=' . $msg);
+                    if (stripos($msg, 'keycloak_oidc_links') !== false && (stripos($msg, 'doesn\'t exist') !== false || stripos($msg, 'not found') !== false)) {
+                        $this->respondText('OIDC login failed: database schema missing (#__keycloak_oidc_links). Install/update the plugin to create the table.', 500);
+                    }
+                    $this->respondText('OIDC login failed: database error while creating link. Contact an administrator.', 500);
                 }
 
                 if (empty($created)) {

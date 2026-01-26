@@ -41,13 +41,9 @@ final class KeycloakOidcLinksRepository
             ->where($this->db->quoteName('issuer') . ' = ' . $this->db->quote($issuer))
             ->where($this->db->quoteName('sub') . ' = ' . $this->db->quote($sub));
 
-        try {
-            $this->db->setQuery($query);
-            $row = $this->db->loadAssoc();
-            return is_array($row) ? $row : null;
-        } catch (\Throwable $e) {
-            return null;
-        }
+        $this->db->setQuery($query);
+        $row = $this->db->loadAssoc();
+        return is_array($row) ? $row : null;
     }
 
     public function findByUserIssuer(int $userId, string $issuer): ?array
@@ -68,13 +64,9 @@ final class KeycloakOidcLinksRepository
             ->where($this->db->quoteName('user_id') . ' = ' . (int) $userId)
             ->where($this->db->quoteName('issuer') . ' = ' . $this->db->quote($issuer));
 
-        try {
-            $this->db->setQuery($query);
-            $row = $this->db->loadAssoc();
-            return is_array($row) ? $row : null;
-        } catch (\Throwable $e) {
-            return null;
-        }
+        $this->db->setQuery($query);
+        $row = $this->db->loadAssoc();
+        return is_array($row) ? $row : null;
     }
 
     public function createLink(int $userId, string $issuer, string $sub, ?string $email, bool $emailVerified, ?string $realm, string $nowUtc): bool
@@ -118,13 +110,9 @@ final class KeycloakOidcLinksRepository
             ->columns(array_map([$this->db, 'quoteName'], $columns))
             ->values(implode(',', $values));
 
-        try {
-            $this->db->setQuery($query);
-            $this->db->execute();
-            return true;
-        } catch (\Throwable $e) {
-            return false;
-        }
+        $this->db->setQuery($query);
+        $this->db->execute();
+        return true;
     }
 
     public function updateOnLoginById(int $id, ?string $email, bool $emailVerified, ?string $realm, string $nowUtc): bool
@@ -152,12 +140,8 @@ final class KeycloakOidcLinksRepository
             $query->set($this->db->quoteName('realm') . ' = ' . $this->db->quote($realm));
         }
 
-        try {
-            $this->db->setQuery($query);
-            $this->db->execute();
-            return true;
-        } catch (\Throwable $e) {
-            return false;
-        }
+        $this->db->setQuery($query);
+        $this->db->execute();
+        return true;
     }
 }
