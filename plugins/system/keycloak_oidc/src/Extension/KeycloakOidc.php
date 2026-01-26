@@ -5,6 +5,7 @@ namespace Fishpoke\Plugin\System\KeycloakOidc\Extension;
 
 defined('_JEXEC') or die;
 
+use Fishpoke\Plugin\System\KeycloakOidc\Mapping\KeycloakOidcLinksRepository;
 use Fishpoke\Plugin\System\KeycloakOidc\Oidc\EndpointResolver;
 use Fishpoke\Plugin\System\KeycloakOidc\Oidc\EndpointSet;
 use Fishpoke\Plugin\System\KeycloakOidc\Oidc\JwtValidator;
@@ -49,7 +50,6 @@ final class KeycloakOidc extends CMSPlugin
 
             $app = Factory::getApplication();
 
-
             $where = $app->isClient('administrator') ? 'admin' : 'site';
 
             // URI robust ermitteln (kein Objekt ins sprintf drücken)
@@ -89,6 +89,7 @@ final class KeycloakOidc extends CMSPlugin
             error_log('[keycloak_oidc] ERROR in onAfterInitialise: ' . $e->getMessage());
         }
     }
+
     public function onAfterRoute(): void
     {
         try {
@@ -129,6 +130,86 @@ final class KeycloakOidc extends CMSPlugin
             $app->enqueueMessage('Keycloak OIDC Plugin loaded', 'notice');
         } catch (\Throwable $e) {
             error_log('[keycloak_oidc] ERROR in onAfterRoute: ' . $e->getMessage());
+        }
+    }
+
+    public function onAfterRender(): void
+    {
+        try {
+            $app = Factory::getApplication();
+            if (!$app->isClient('administrator')) {
+                return;
+            }
+
+            $enabled = (bool) $this->params->get('enable_backend', 0);
+            if (!$enabled) {
+                return;
+            }
+
+            $option = $app->input->getCmd('option', '');
+            if ($option !== 'com_login') {
+                return;
+            }
+
+            $identity = method_exists($app, 'getIdentity') ? $app->getIdentity() : null;
+            $userId = is_object($identity) && isset($identity->id) ? (int) $identity->id : 0;
+            if ($userId > 0) {
+                return;
+            }
+
+            $allowLocal = (bool) $this->params->get('allow_local_admin_login', 1);
+            $kcLocal = (int) $app->input->getInt('kc_local', 0) === 1;
+
+            $returnUrl = rtrim((string) Uri::base(), '/') . '/index.php';
+            $returnParam = base64_encode($returnUrl);
+            $keycloakLoginUrl = 'index.php?option=com_ajax&plugin=keycloak_oidc&format=raw&task=login&return=' . rawurlencode($returnParam);
+            $localUrl = 'index.php?option=com_login&kc_local=1';
+
+            $body = (string) $app->getBody();
+            if ($body === '' || str_contains($body, 'kc_oidc_backend_login')) {
+                return;
+            }
+
+            $buttons = '<div class="mb-3 kc_oidc_backend_login" id="kc_oidc_backend_login">'
+                . '<a class="btn btn-primary w-100" href="' . htmlspecialchars($keycloakLoginUrl, ENT_QUOTES, 'UTF-8') . '">Login with Keycloak</a>'
+                . '</div>';
+
+            if ($allowLocal) {
+                $buttons .= '<div class="mb-3">'
+                    . '<a class="btn btn-outline-secondary w-100" href="' . htmlspecialchars($localUrl, ENT_QUOTES, 'UTF-8') . '">lokal anmelden</a>'
+                    . '</div>';
+            }
+
+            $auto = '';
+            if (!$kcLocal) {
+                $auto = '<script>(function(){try{setTimeout(function(){window.location.href=' . json_encode($keycloakLoginUrl) . ';},250);}catch(e){}})();</script>';
+            }
+
+            if ($allowLocal && $kcLocal) {
+                $auto = '';
+            }
+
+            $injection = $buttons . $auto;
+
+            $pos = stripos($body, '<form');
+            if ($pos !== false) {
+                $body = substr($body, 0, $pos) . $injection . substr($body, $pos);
+                $app->setBody($body);
+                return;
+            }
+
+            $pos = stripos($body, '<body');
+            if ($pos !== false) {
+                $pos2 = stripos($body, '>', $pos);
+                if ($pos2 !== false) {
+                    $pos2++;
+                    $body = substr($body, 0, $pos2) . $injection . substr($body, $pos2);
+                    $app->setBody($body);
+                    return;
+                }
+            }
+        } catch (\Throwable $e) {
+            error_log('[keycloak_oidc] ERROR in onAfterRender: ' . $e->getMessage());
         }
     }
 
@@ -574,7 +655,12 @@ final class KeycloakOidc extends CMSPlugin
 
         $issuerCfg = $this->normalizeIssuer(trim((string) $this->params->get('issuer', '')));
         if ($issuerCfg === '' || $this->normalizeIssuer($issuer) !== $issuerCfg) {
-            $this->auditLog('LOGIN_DENY issuer mismatch has_session_issuer=' . ($issuer !== '' ? '1' : '0'));
+            $this->auditLog(
+                'LOGIN_DENY issuer mismatch'
+                . ' has_session_issuer=' . ($issuer !== '' ? '1' : '0')
+                . ' issuer_fp=' . ($issuer !== '' ? $this->hashSensitive($this->normalizeIssuer($issuer)) : '')
+                . ' cfg_fp=' . ($issuerCfg !== '' ? $this->hashSensitive($issuerCfg) : '')
+            );
             $this->respondText('Issuer mismatch. Start login again.', 400);
         }
 
@@ -612,7 +698,7 @@ final class KeycloakOidc extends CMSPlugin
             }
 
             $this->auditLog(
-                'LOGIN_DENY missing session data issuer=' . $this->normalizeIssuer($issuer)
+                'LOGIN_DENY missing session data issuer_fp=' . ($issuer !== '' ? $this->hashSensitive($this->normalizeIssuer($issuer)) : '')
                 . ' has_issuer=' . ($issuer !== '' ? '1' : '0')
                 . ' has_state=' . ($expectedState !== '' ? '1' : '0')
                 . ' has_nonce=' . ($expectedNonce !== '' ? '1' : '0')
@@ -696,159 +782,166 @@ final class KeycloakOidc extends CMSPlugin
             $sub = (string) ($claims['sub'] ?? '');
         }
         if ($sub === '') {
-            $this->auditLog('LOGIN_DENY missing sub issuer=' . $issuerNorm);
+            $this->auditLog('LINK_DENY reason=missing_sub issuer_fp=' . $this->hashSensitive($issuerNorm));
             $this->respondAuthDenied();
         }
 
         [$email, $emailReason] = $this->getReliableEmailWithReason($userinfo, $claims);
-        if ($email === '') {
-            $extra = '';
-            if ($emailReason === 'mismatch') {
-                $u = strtolower(trim((string) ($userinfo['email'] ?? '')));
-                $c = strtolower(trim((string) ($claims['email'] ?? '')));
-                if ($u !== '' && $c !== '') {
-                    $extra = ' fp_userinfo=' . $this->emailFingerprint($u) . ' fp_id_token=' . $this->emailFingerprint($c);
-                }
-            }
+        $emailVerified = $this->isEmailVerifiedStrict($userinfo, $claims);
 
-            $this->auditLog('LOGIN_DENY email invalid issuer=' . $issuerNorm . ' sub=' . $sub . ' reason=' . $emailReason . $extra);
-            $this->respondAuthDenied();
+        $issuerFp = $this->hashSensitive($issuerNorm);
+        $subFp = $this->hashSensitive($sub);
+        $emailFp = $email !== '' ? $this->emailFingerprint($email) : '';
+        $realm = $this->extractRealmFromIssuer($issuerNorm);
+
+        if ($email !== '') {
+            $this->auditLog(
+                'EMAIL_CLAIM issuer_fp=' . $issuerFp
+                . ' sub_fp=' . $subFp
+                . ' src=' . $emailReason
+                . ' fp=' . $emailFp
+                . ' email_verified=' . ($emailVerified ? 'true' : 'false')
+            );
         }
 
-        $emailVerifiedOkForJit = $this->isEmailVerifiedForJit($userinfo, $claims);
+        $userId = 0;
+        $user = null;
 
-        $this->auditLog(
-            'EMAIL_CLAIM issuer=' . $issuerNorm
-            . ' sub=' . $sub
-            . ' src=' . $emailReason
-            . ' fp=' . $this->emailFingerprint($email)
-            . ' email_verified=' . ($emailVerifiedOkForJit ? 'true' : 'false')
-        );
+        $linksRepo = new KeycloakOidcLinksRepository(Factory::getDbo());
+        $nowUtc = gmdate('Y-m-d H:i:s');
 
-        $jitEnabled = (bool) $this->params->get('jit_enabled', 0);
-        $jitAutoLinkExisting = (bool) $this->params->get('jit_auto_link_existing', 0);
+        $link = $linksRepo->findByIssuerSub($issuerNorm, $sub);
+        if (is_array($link)) {
+            $userId = (int) ($link['user_id'] ?? 0);
+            $user = $userId > 0 ? Factory::getUser($userId) : null;
 
-        $userId = $this->findJoomlaUserIdByEmail($email);
-        $user = $userId > 0 ? Factory::getUser($userId) : null;
-
-        if ($userId > 0 && $user !== null) {
-            $link = $this->getKeycloakLinkFromUser($user);
-            if ($link['issuer'] !== '' || $link['sub'] !== '') {
-                if ($link['issuer'] !== $issuerNorm || $link['sub'] !== $sub) {
-                    $this->auditLog('LOGIN_DENY link mismatch userId=' . (int) $userId . ' issuer=' . $issuerNorm . ' sub=' . $sub);
-                    $this->respondAuthDenied();
-                }
-            } else {
-                if (!$jitAutoLinkExisting) {
-                    $this->auditLog(
-                        'LOGIN_DENY existing email not linked userId=' . (int) $userId
-                        . ' issuer=' . $issuerNorm
-                        . ' sub=' . $sub
-                        . ' email_fp=' . $this->emailFingerprint($email)
-                        . ' email_src=' . $emailReason
-                    );
-                    $this->respondAuthDeniedContactAdmin();
-                }
-
-                if (!$emailVerifiedOkForJit) {
-                    $this->auditLog(
-                        'LOGIN_DENY email not verified for auto-link userId=' . (int) $userId
-                        . ' issuer=' . $issuerNorm
-                        . ' sub=' . $sub
-                        . ' email_fp=' . $this->emailFingerprint($email)
-                        . ' email_src=' . $emailReason
-                    );
-                    $this->respondAuthDeniedEmailVerificationRequired();
-                }
-
-                if (!$this->isEmailDomainAllowedForJit($email)) {
-                    $this->auditLog(
-                        'LOGIN_DENY email domain not allowed for auto-link userId=' . (int) $userId
-                        . ' issuer=' . $issuerNorm
-                        . ' sub=' . $sub
-                        . ' email_fp=' . $this->emailFingerprint($email)
-                        . ' email_src=' . $emailReason
-                    );
-                    $this->respondAuthDenied();
-                }
-
-                try {
-                    $this->persistKeycloakLinkOnUser($user, $issuerNorm, $sub, $email);
-                    $this->auditLog('LINK existing userId=' . (int) $userId . ' issuer=' . $issuerNorm . ' sub=' . $sub);
-                } catch (\Throwable $e) {
-                    $this->auditLog(
-                        'LOGIN_DENY persist link failed userId=' . (int) $userId
-                        . ' issuer=' . $issuerNorm
-                        . ' sub=' . $sub
-                        . ' exception=' . get_class($e)
-                        . ' reason=' . $this->redactSecrets((string) $e->getMessage())
-                    );
-                    $this->respondAuthDenied();
-                }
+            if ($this->isDebugEnabled()) {
+                $this->debugLog('LINK_LOOKUP', 'hit', [
+                    'issuer_fp' => $issuerFp,
+                    'sub_fp' => $subFp,
+                    'link_id' => (int) ($link['id'] ?? 0),
+                    'user_id' => $userId,
+                ]);
             }
-        }
 
-        if (($userId <= 0 || $user === null) && $jitEnabled) {
-            if (!$emailVerifiedOkForJit) {
-                $this->auditLog(
-                    'LOGIN_DENY email not verified for JIT issuer=' . $issuerNorm
-                    . ' sub=' . $sub
-                    . ' email_fp=' . $this->emailFingerprint($email)
-                    . ' email_src=' . $emailReason
-                );
+            if (!is_object($user) || !isset($user->id) || (int) $user->id <= 0) {
+                $this->auditLog('LINK_DENY reason=mapping_points_to_missing_user issuer_fp=' . $issuerFp . ' sub_fp=' . $subFp . ' user_id=' . $userId);
+                $this->respondAuthDeniedContactAdmin();
+            }
+
+            $linksRepo->updateOnLoginById(
+                (int) ($link['id'] ?? 0),
+                $email !== '' ? $email : null,
+                $emailVerified,
+                $realm !== '' ? $realm : null,
+                $nowUtc
+            );
+
+            if ($this->isDebugEnabled()) {
+                $this->debugLog('LINK_UPDATE', 'updated last_login', [
+                    'link_id' => (int) ($link['id'] ?? 0),
+                    'issuer_fp' => $issuerFp,
+                    'sub_fp' => $subFp,
+                ]);
+            }
+        } else {
+            if ($this->isDebugEnabled()) {
+                $this->debugLog('LINK_LOOKUP', 'miss', [
+                    'issuer_fp' => $issuerFp,
+                    'sub_fp' => $subFp,
+                ]);
+            }
+
+            if ($email === '') {
+                $this->auditLog('LINK_DENY reason=email_missing issuer_fp=' . $issuerFp . ' sub_fp=' . $subFp . ' src=' . $emailReason);
+                $this->respondAuthDenied();
+            }
+
+            if (!$emailVerified) {
+                $this->auditLog('LINK_DENY reason=email_unverified issuer_fp=' . $issuerFp . ' sub_fp=' . $subFp . ' email_fp=' . $emailFp);
                 $this->respondAuthDeniedEmailVerificationRequired();
             }
 
-            if (!$this->isEmailDomainAllowedForJit($email)) {
-                $this->auditLog(
-                    'LOGIN_DENY email domain not allowed for JIT issuer=' . $issuerNorm
-                    . ' sub=' . $sub
-                    . ' email_fp=' . $this->emailFingerprint($email)
-                    . ' email_src=' . $emailReason
-                );
-                $this->respondAuthDenied();
-            }
+            $userId = $this->findJoomlaUserIdByEmail($email);
+            $user = $userId > 0 ? Factory::getUser($userId) : null;
 
-            if (!$this->canAttemptJitProvisioningForState($expectedState)) {
-                $this->auditLog('LOGIN_DENY JIT rate limited issuer=' . $issuerNorm . ' sub=' . $sub);
-                $this->respondAuthDenied();
-            }
+            if ($userId > 0 && is_object($user) && isset($user->id) && (int) $user->id > 0) {
+                $allowEmailLinking = (bool) $this->params->get('allow_email_linking', 0);
+                if (!$allowEmailLinking) {
+                    $this->auditLog('LINK_DENY reason=no_mapping issuer_fp=' . $issuerFp . ' sub_fp=' . $subFp . ' user_id=' . (int) $userId);
+                    $this->respondAuthDeniedContactAdmin();
+                }
 
-            $groupIds = $this->getJitGroupIds();
-            if (!$this->jitGroupsAllowed($groupIds)) {
-                $this->auditLog('LOGIN_DENY JIT groups not allowed issuer=' . $issuerNorm . ' sub=' . $sub);
-                $this->respondAuthDenied();
-            }
+                if (!$this->isEmailDomainAllowedForJit($email)) {
+                    $this->auditLog('LINK_DENY reason=email_domain_not_allowed issuer_fp=' . $issuerFp . ' sub_fp=' . $subFp . ' email_fp=' . $emailFp);
+                    $this->respondAuthDenied();
+                }
 
-            $session->set('kc_oidc_jit_attempted_for_state', $expectedState);
+                $existingUserIssuerLink = $linksRepo->findByUserIssuer($userId, $issuerNorm);
+                if (is_array($existingUserIssuerLink)) {
+                    $existingSub = trim((string) ($existingUserIssuerLink['sub'] ?? ''));
+                    if ($existingSub !== '' && $existingSub !== $sub) {
+                        $this->auditLog('LINK_DENY reason=user_already_linked_to_different_sub issuer_fp=' . $issuerFp . ' sub_fp=' . $subFp . ' user_id=' . (int) $userId);
+                        $this->respondAuthDeniedContactAdmin();
+                    }
+                }
 
-            try {
-                $userId = $this->createJoomlaUserFromUserinfo($userinfo, $email, $groupIds);
-            } catch (\Throwable $e) {
-                $this->auditLog('LOGIN_DENY JIT create failed issuer=' . $issuerNorm . ' sub=' . $sub . ' exception=' . get_class($e));
-                $this->respondAuthDenied();
-            }
+                $created = $linksRepo->createLink($userId, $issuerNorm, $sub, $email, true, $realm !== '' ? $realm : null, $nowUtc);
+                if (!$created) {
+                    $link2 = $linksRepo->findByIssuerSub($issuerNorm, $sub);
+                    if (!is_array($link2)) {
+                        $this->auditLog('LINK_DENY reason=failed_to_create_link issuer_fp=' . $issuerFp . ' sub_fp=' . $subFp . ' user_id=' . (int) $userId);
+                        $this->respondAuthDeniedContactAdmin();
+                    }
+                }
 
-            $user = Factory::getUser($userId);
-            try {
-                $this->persistKeycloakLinkOnUser($user, $issuerNorm, $sub, $email);
-                $this->auditLog('JIT_CREATE userId=' . (int) $userId . ' issuer=' . $issuerNorm . ' sub=' . $sub);
-            } catch (\Throwable $e) {
-                $this->auditLog(
-                    'LOGIN_DENY JIT persist link failed userId=' . (int) $userId
-                    . ' issuer=' . $issuerNorm
-                    . ' sub=' . $sub
-                    . ' exception=' . get_class($e)
-                    . ' reason=' . $this->redactSecrets((string) $e->getMessage())
-                );
-                $this->respondAuthDenied();
+                $this->auditLog('LINK_CREATE user_id=' . (int) $userId . ' issuer_fp=' . $issuerFp . ' sub_fp=' . $subFp);
+            } else {
+                $allowJitCreate = (bool) $this->params->get('allow_jit_create', 0);
+                if (!$allowJitCreate) {
+                    $this->auditLog('LINK_DENY reason=no_user issuer_fp=' . $issuerFp . ' sub_fp=' . $subFp . ' email_fp=' . $emailFp);
+                    $this->respondAuthDenied();
+                }
+
+                if (!$this->isEmailDomainAllowedForJit($email)) {
+                    $this->auditLog('LINK_DENY reason=email_domain_not_allowed issuer_fp=' . $issuerFp . ' sub_fp=' . $subFp . ' email_fp=' . $emailFp);
+                    $this->respondAuthDenied();
+                }
+
+                if (!$this->canAttemptJitProvisioningForState($expectedState)) {
+                    $this->auditLog('LINK_DENY reason=jit_rate_limited issuer_fp=' . $issuerFp . ' sub_fp=' . $subFp);
+                    $this->respondAuthDenied();
+                }
+
+                $groupIds = $this->getJitGroupIds();
+                if (!$this->jitGroupsAllowed($groupIds)) {
+                    $this->auditLog('LINK_DENY reason=jit_groups_not_allowed issuer_fp=' . $issuerFp . ' sub_fp=' . $subFp);
+                    $this->respondAuthDenied();
+                }
+
+                $session->set('kc_oidc_jit_attempted_for_state', $expectedState);
+
+                try {
+                    $userId = $this->createJoomlaUserFromUserinfo($userinfo, $email, $groupIds);
+                } catch (\Throwable $e) {
+                    $this->auditLog('LINK_DENY reason=jit_create_failed issuer_fp=' . $issuerFp . ' sub_fp=' . $subFp . ' exception=' . get_class($e));
+                    $this->respondAuthDenied();
+                }
+
+                $user = Factory::getUser($userId);
+
+                $created = $linksRepo->createLink($userId, $issuerNorm, $sub, $email, true, $realm !== '' ? $realm : null, $nowUtc);
+                if (!$created) {
+                    $this->auditLog('LINK_DENY reason=failed_to_create_link issuer_fp=' . $issuerFp . ' sub_fp=' . $subFp . ' user_id=' . (int) $userId);
+                    $this->respondAuthDeniedContactAdmin();
+                }
+
+                $this->auditLog('LINK_CREATE user_id=' . (int) $userId . ' issuer_fp=' . $issuerFp . ' sub_fp=' . $subFp);
             }
         }
 
-        if ($userId <= 0 || $user === null) {
-            if (!$jitEnabled) {
-                $this->auditLog('LOGIN_DENY no matching user and JIT disabled issuer=' . $issuerNorm . ' sub=' . $sub);
-            }
+        if ($userId <= 0 || !is_object($user) || !isset($user->id) || (int) $user->id <= 0) {
+            $this->auditLog('LINK_DENY reason=no_resolved_user issuer_fp=' . $issuerFp . ' sub_fp=' . $subFp);
             $this->respondAuthDenied();
         }
 
@@ -1064,37 +1157,41 @@ final class KeycloakOidc extends CMSPlugin
         return $domain . ':' . $hash;
     }
 
-    private function isEmailVerifiedForJit(array $userinfo, array $claims): bool
+    private function isEmailVerifiedStrict(array $userinfo, array $claims): bool
     {
-        $allowUnverified = (bool) $this->params->get('jit_allow_unverified', 0);
-        if ($allowUnverified) {
-            return true;
+        $val = null;
+        if (array_key_exists('email_verified', $userinfo)) {
+            $val = $userinfo['email_verified'];
+        } elseif (array_key_exists('email_verified', $claims)) {
+            $val = $claims['email_verified'];
         }
 
-        $hasUserinfo = array_key_exists('email_verified', $userinfo);
-        $hasClaims = array_key_exists('email_verified', $claims);
-
-        if (!$hasUserinfo && !$hasClaims) {
-            return true;
+        if (is_bool($val)) {
+            return $val === true;
+        }
+        if (is_int($val)) {
+            return $val === 1;
+        }
+        if (is_string($val)) {
+            $v = strtolower(trim($val));
+            return $v === 'true' || $v === '1' || $v === 'yes';
         }
 
-        $valUserinfo = $hasUserinfo ? $userinfo['email_verified'] : null;
-        $valClaims = $hasClaims ? $claims['email_verified'] : null;
+        return false;
+    }
 
-        if (is_string($valUserinfo)) {
-            $valUserinfo = strtolower(trim($valUserinfo));
-            $valUserinfo = ($valUserinfo === 'false' || $valUserinfo === '0') ? false : (($valUserinfo === 'true' || $valUserinfo === '1') ? true : null);
-        }
-        if (is_string($valClaims)) {
-            $valClaims = strtolower(trim($valClaims));
-            $valClaims = ($valClaims === 'false' || $valClaims === '0') ? false : (($valClaims === 'true' || $valClaims === '1') ? true : null);
+    private function extractRealmFromIssuer(string $issuer): string
+    {
+        $issuer = $this->normalizeIssuer($issuer);
+        if ($issuer === '') {
+            return '';
         }
 
-        if ($valUserinfo === false || $valClaims === false) {
-            return false;
+        if (preg_match('#/realms/([^/]+)#', $issuer, $m) === 1) {
+            return (string) ($m[1] ?? '');
         }
 
-        return true;
+        return '';
     }
 
     private function getAllowedEmailDomainsForJit(): array
@@ -1160,93 +1257,6 @@ final class KeycloakOidc extends CMSPlugin
         return true;
     }
 
-    private function getKeycloakLinkFromUser(User $user): array
-    {
-        $params = $this->getUserParamsArray($user);
-        $kc = [];
-        if (isset($params['keycloak_oidc']) && is_array($params['keycloak_oidc'])) {
-            $kc = $params['keycloak_oidc'];
-        }
-
-        return [
-            'issuer' => isset($kc['issuer']) ? (string) $kc['issuer'] : '',
-            'sub' => isset($kc['sub']) ? (string) $kc['sub'] : '',
-        ];
-    }
-
-    private function persistKeycloakLinkOnUser(User $user, string $issuer, string $sub, string $email): void
-    {
-        $issuer = $this->normalizeIssuer($issuer);
-        $params = $this->getUserParamsArray($user);
-        $kc = [];
-        if (isset($params['keycloak_oidc']) && is_array($params['keycloak_oidc'])) {
-            $kc = $params['keycloak_oidc'];
-        }
-
-        $kc['issuer'] = $issuer;
-        $kc['sub'] = $sub;
-        $kc['email'] = $email;
-        $kc['last_login'] = gmdate('c');
-        $params['keycloak_oidc'] = $kc;
-
-        $paramsJson = json_encode($params);
-        if ($paramsJson === false) {
-            throw new \RuntimeException('Failed to encode params');
-        }
-
-        $user->params = $paramsJson;
-
-        try {
-            if ($user->save()) {
-                return;
-            }
-        } catch (\Throwable $e) {
-        }
-
-        $err = '';
-        if (method_exists($user, 'getError')) {
-            $err = (string) $user->getError();
-        }
-
-        $errHash = $err !== '' ? substr(hash('sha256', $err), 0, 12) : 'none';
-
-        $userId = 0;
-        if (isset($user->id)) {
-            $userId = (int) $user->id;
-        }
-        if ($userId <= 0) {
-            throw new \RuntimeException('Failed to save user (no id) err_hash=' . $errHash);
-        }
-
-        try {
-            $db = Factory::getDbo();
-            $query = $db->getQuery(true)
-                ->update($db->quoteName('#__users'))
-                ->set($db->quoteName('params') . ' = ' . $db->quote($paramsJson))
-                ->where($db->quoteName('id') . ' = ' . (int) $userId);
-            $db->setQuery($query);
-            $db->execute();
-            return;
-        } catch (\Throwable $e) {
-            throw new \RuntimeException('Failed to persist params via db err_hash=' . $errHash);
-        }
-    }
-
-    private function getUserParamsArray(User $user): array
-    {
-        $raw = $user->params;
-        if (is_string($raw)) {
-            $decoded = json_decode($raw, true);
-            return is_array($decoded) ? $decoded : [];
-        }
-
-        if (is_object($raw) && method_exists($raw, 'toArray')) {
-            $arr = $raw->toArray();
-            return is_array($arr) ? $arr : [];
-        }
-
-        return [];
-    }
 
     private function auditLog(string $message): void
     {
@@ -1294,15 +1304,21 @@ final class KeycloakOidc extends CMSPlugin
 
     private function getRedirectUri(): string
     {
+        $app = Factory::getApplication();
+        $encodedReturn = trim((string) $app->input->getString('return', ''));
         $base = $this->getPublicBaseUrlForRedirect();
         $uri = Uri::getInstance($base);
         $uri->setPath(rtrim($uri->getPath(), '/') . '/index.php');
-        $uri->setQuery(http_build_query([
+        $query = [
             'option' => 'com_ajax',
             'plugin' => 'keycloak_oidc',
             'format' => 'raw',
             'task' => 'callback',
-        ]));
+        ];
+        if ($encodedReturn !== '') {
+            $query['return'] = $encodedReturn;
+        }
+        $uri->setQuery(http_build_query($query));
         return (string) $uri;
     }
 

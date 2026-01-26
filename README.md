@@ -69,24 +69,31 @@ zip -r keycloak_oidc.zip keycloak_oidc.php keycloak_oidc.xml src services langua
      - Joomla public base (site/admin): set if Joomla is behind a proxy or non-standard port.
      - Keycloak internal base URL: set if Joomla must reach Keycloak via an internal Docker URL.
    - Optional (JIT):
-     - Allow unverified email: enables JIT / auto-link even if Keycloak reports `email_verified=false`.
+     - Allow email linking: allows linking existing Joomla users by email (only when `email_verified=true`).
+     - Allow JIT user creation: allows creating new Joomla users (only when `email_verified=true`).
 3. Start login:
    - Open: `https://joomla.local/index.php?option=com_ajax&plugin=keycloak_oidc&format=raw&task=login`
 4. Callback URL (must be allowed in Keycloak client):
    - `https://joomla.local/index.php?option=com_ajax&plugin=keycloak_oidc&format=raw&task=callback`
 5. Negative tests:
-   - Invalid state or nonce -> deny
-   - Missing email claim (userinfo/id_token) -> deny
-   - JIT OFF and user does not exist -> deny
-6. JIT provisioning (optional):
-   - Set `JIT provisioning` -> Enabled
-   - Set `JIT group IDs` -> `2` (Registered)
-   - Ensure there is no existing Joomla user with the Keycloak email
-   - Repeat login: user should be created, linked, and logged in
-7. Existing email but not linked:
-   - Ensure Joomla user exists with matching email but has no Keycloak link
-   - If `Auto-link existing users` -> Enabled: login should link + succeed
-   - If `Auto-link existing users` -> Disabled: deny with a generic "contact admin" message
+    - Invalid state or nonce -> deny
+    - Missing email claim (userinfo/id_token) -> deny
+    - Allow JIT user creation OFF and user does not exist -> deny
+ 6. Email linking (optional):
+    - Ensure Joomla user exists with matching email but no issuer+sub link exists
+    - Ensure Keycloak provides `email_verified=true`
+    - Enable `Allow email linking`
+    - Repeat login: link should be created and login should succeed
+ 7. JIT provisioning (optional):
+    - Enable `Allow JIT user creation`
+    - Set `JIT group IDs` -> `2` (Registered)
+    - Ensure there is no existing Joomla user with the Keycloak email
+    - Ensure Keycloak provides `email_verified=true`
+    - Repeat login: user should be created, linked, and logged in
+ 8. Break-glass (admin):
+    - Open `/administrator/index.php?option=com_login&kc_local=1` to force local login
+    - Emergency disable via DB:
+      - `UPDATE #__extensions SET enabled=0 WHERE element='keycloak_oidc' AND folder='system';`
 
 ## Security Notes
 
@@ -95,8 +102,7 @@ zip -r keycloak_oidc.zip keycloak_oidc.php keycloak_oidc.xml src services langua
    - Prefer `userinfo.email`
    - Fallback to `id_token.email` only if plausible
 3. Email verification:
-   - If `email_verified` is present and false, JIT and auto-link are denied.
-   - If `Allow unverified email` is enabled, the plugin will allow JIT / auto-link even when `email_verified=false`.
+   - If `email_verified` is missing or false, login is denied (secure default).
 4. Optional domain allowlist:
    - `Allowed email domains` restricts JIT/auto-link to specific domains.
 5. Privileged group guardrails:
@@ -104,8 +110,8 @@ zip -r keycloak_oidc.zip keycloak_oidc.php keycloak_oidc.xml src services langua
 6. TLS verification:
    - `TLS Verification` should remain enabled. Disabling it is insecure (MITM risk) and should only be used temporarily for testing.
 6. Linking:
-   - The plugin persists a link on the Joomla user record (user params): issuer + subject (sub).
-   - If an existing user is linked to a different Keycloak identity, login is denied.
+   - The plugin stores issuer+sub links in the database table `#__keycloak_oidc_links`.
+   - If an existing user is linked to a different Keycloak identity (same issuer, different sub), login is denied.
 7. Logging:
    - The plugin does not log tokens or secrets.
    - Debug logs are written to Joomla's configured `log_path` (from `configuration.php`) as `keycloak_oidc.php`.

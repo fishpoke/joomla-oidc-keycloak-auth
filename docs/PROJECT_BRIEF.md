@@ -47,25 +47,52 @@ Ein **Joomla 5 System-Plugin** (ohne zusätzliche Komponente), das **Keycloak (O
 
 ### Kern-Funktionen
 1. **Konfiguration im Plugin**
-   - issuer (Realm URL / `.well-known/openid-configuration` Basis)
-   - client_id
-   - client_secret
-   - redirect_uri (automatisch)
-   - toggles: enable_frontend, enable_backend, debug
-   - toggles: client_auth_in_header / in_body
-   - optional: force_keycloak_only (Joomla native auth deaktivieren/ausblenden)
+  - issuer (Realm URL / `.well-known/openid-configuration` Basis)
+  - client_id
+  - client_secret
+  - redirect_uri (automatisch)
+  - toggles: enable_frontend, enable_backend, debug
+  - toggles: client_auth_in_header / in_body
+  - security: allow_local_admin_login (break-glass) für Backend
+  - linking/jit: allow_email_linking / allow_jit_create
 
 2. **Login Start**
    - Entry-Point URL (z.B. via com_ajax endpoint) für Redirect auf Keycloak auth endpoint
    - später: UI Button in Login-Modul / Backend Login-View
 
 3. **Callback**
-   - `code` entgegennehmen
-   - Token exchange gegen Keycloak `/token`
-   - `userinfo` abrufen
-   - Validierung: state/nonce (CSRF / Replay)
-   - Match user via email oder subject (sub)
-   - Login in Joomla (Session setzen)
+  - `code` entgegennehmen
+  - Token exchange gegen Keycloak `/token`
+  - `userinfo` abrufen
+  - Validierung: state/nonce (CSRF / Replay)
+  - Match user via `(issuer, sub)` Link-Tabelle
+  - Login in Joomla (Session setzen)
+
+### Linking / Datenmodell
+
+- Die Zuordnung Keycloak → Joomla erfolgt ausschließlich über die Tabelle:
+  - `#__keycloak_oidc_links`
+- Ein Keycloak-User wird eindeutig identifiziert durch:
+  - `issuer` + `sub`
+- Ein Joomla-User wird referenziert über:
+  - `user_id`
+- Pro erfolgreichem Login wird aktualisiert:
+  - `last_login`, `updated_at`
+  - optional `email`, `email_verified`, `realm`
+
+### Security Defaults
+
+- `email_verified` ist strikt:
+  - fehlt oder false => Login wird abgelehnt
+- Sensible Werte werden nicht im Klartext geloggt:
+  - issuer/sub/email nur als Fingerprint
+
+### Break-glass (nicht aussperren)
+
+- Backend Login kann lokal erzwungen werden über:
+  - `/administrator/index.php?option=com_login&kc_local=1`
+- Notfall-Disable via DB:
+  - `UPDATE #__extensions SET enabled=0 WHERE element='keycloak_oidc' AND folder='system';`
 
 4. **JIT Provisioning**
    - wenn User nicht existiert: User anlegen
@@ -106,7 +133,7 @@ Ein **Joomla 5 System-Plugin** (ohne zusätzliche Komponente), das **Keycloak (O
 ### M5: UI Polishing
 - Login Button (Frontend)
 - optional: Backend Login Button
-- optional: “Force Keycloak only” (native login ausblenden)
+- Backend Break-glass Button (lokaler Login)
 
 ---
 

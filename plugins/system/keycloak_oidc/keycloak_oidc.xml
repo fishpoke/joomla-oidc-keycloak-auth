@@ -1,15 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <extension type="plugin" group="system" method="upgrade">
   <name>plg_system_keycloak_oidc</name>
-  <version>0.5.2</version>
+  <version>0.6.0</version>
   <creationDate>2026-01-20</creationDate>
   <author>CLM Projekt</author>
   <description>PLG_SYSTEM_KEYCLOAK_OIDC_XML_DESCRIPTION</description>
+
+  <scriptfile>script.php</scriptfile>
 
   <namespace path="src">Fishpoke\Plugin\System\KeycloakOidc</namespace>
 
   <files>
     <filename plugin="keycloak_oidc">keycloak_oidc.php</filename>
+    <filename>script.php</filename>
     <folder>src</folder>
     <folder>services</folder>
     <folder>language</folder>
@@ -224,6 +227,18 @@
           <option value="0">Disabled</option>
           <option value="1">Enabled</option>
         </field>
+
+        <field
+          name="allow_local_admin_login"
+          type="radio"
+          layout="joomla.form.field.radio.switcher"
+          default="1"
+          label="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_ALLOW_LOCAL_ADMIN_LOGIN_LABEL"
+          description="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_ALLOW_LOCAL_ADMIN_LOGIN_DESC"
+        >
+          <option value="0">Disabled</option>
+          <option value="1">Enabled</option>
+        </field>
         <field
           name="client_auth_in_header"
           type="radio"
@@ -271,35 +286,26 @@
           label="PLG_SYSTEM_KEYCLOAK_OIDC_SECURITY_NOTICE_LABEL"
           description="PLG_SYSTEM_KEYCLOAK_OIDC_SECURITY_NOTICE_JIT_DESC"
         />
+
         <field
-          name="jit_enabled"
+          name="allow_email_linking"
           type="radio"
           layout="joomla.form.field.radio.switcher"
           default="0"
-          label="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_JIT_ENABLED_LABEL"
-          description="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_JIT_ENABLED_DESC"
+          label="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_ALLOW_EMAIL_LINKING_LABEL"
+          description="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_ALLOW_EMAIL_LINKING_DESC"
         >
           <option value="0">Disabled</option>
           <option value="1">Enabled</option>
         </field>
+
         <field
-          name="jit_auto_link_existing"
+          name="allow_jit_create"
           type="radio"
           layout="joomla.form.field.radio.switcher"
           default="0"
-          label="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_JIT_AUTO_LINK_EXISTING_LABEL"
-          description="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_JIT_AUTO_LINK_EXISTING_DESC"
-        >
-          <option value="0">Disabled</option>
-          <option value="1">Enabled</option>
-        </field>
-        <field
-          name="jit_allow_unverified"
-          type="radio"
-          layout="joomla.form.field.radio.switcher"
-          default="0"
-          label="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_JIT_ALLOW_UNVERIFIED_LABEL"
-          description="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_JIT_ALLOW_UNVERIFIED_DESC"
+          label="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_ALLOW_JIT_CREATE_LABEL"
+          description="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_ALLOW_JIT_CREATE_DESC"
         >
           <option value="0">Disabled</option>
           <option value="1">Enabled</option>
