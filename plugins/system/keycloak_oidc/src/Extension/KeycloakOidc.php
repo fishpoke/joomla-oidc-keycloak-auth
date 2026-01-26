@@ -724,6 +724,13 @@ final class KeycloakOidc extends CMSPlugin
             $this->respondText('Missing code.', 400);
         }
 
+        try {
+            $this->ensureLinksSchemaExists();
+        } catch (\Throwable $e) {
+            $this->auditLog('DB_ERROR links_schema_create_failed message=' . $this->redactSecrets((string) $e->getMessage()));
+            $this->respondText('OIDC login failed: database schema missing (#__keycloak_oidc_links). Install/update the plugin to create the table.', 500);
+        }
+
         $endpoints = $this->resolveEndpoints();
         $tokenEndpoint = $endpoints->getTokenEndpoint();
         $userinfoEndpoint = $endpoints->getUserinfoEndpoint();
@@ -1351,6 +1358,34 @@ final class KeycloakOidc extends CMSPlugin
             $db->execute();
         } catch (\Throwable $e) {
         }
+    }
+
+    private function ensureLinksSchemaExists(): void
+    {
+        $db = Factory::getDbo();
+
+        $sql = <<<SQL
+CREATE TABLE IF NOT EXISTS `#__keycloak_oidc_links` (
+  `id` BIGINT NOT NULL AUTO_INCREMENT,
+  `user_id` INT NOT NULL,
+  `issuer` VARCHAR(255) NOT NULL,
+  `sub` VARCHAR(255) NOT NULL,
+  `email` VARCHAR(320) NULL,
+  `email_verified` TINYINT(1) NOT NULL DEFAULT 0,
+  `realm` VARCHAR(255) NULL,
+  `last_login` DATETIME NULL,
+  `created_at` DATETIME NOT NULL,
+  `updated_at` DATETIME NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_issuer_sub` (`issuer`, `sub`),
+  UNIQUE KEY `uniq_user_issuer` (`user_id`, `issuer`),
+  KEY `idx_user` (`user_id`),
+  KEY `idx_sub` (`sub`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+SQL;
+
+        $db->setQuery($db->replacePrefix($sql));
+        $db->execute();
     }
 
     private function getRedirectUri(): string
