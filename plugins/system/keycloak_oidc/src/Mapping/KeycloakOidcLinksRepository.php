@@ -41,9 +41,13 @@ final class KeycloakOidcLinksRepository
             ->where($this->db->quoteName('issuer') . ' = ' . $this->db->quote($issuer))
             ->where($this->db->quoteName('sub') . ' = ' . $this->db->quote($sub));
 
-        $this->db->setQuery($query);
-        $row = $this->db->loadAssoc();
-        return is_array($row) ? $row : null;
+        try {
+            $this->db->setQuery($query);
+            $row = $this->db->loadAssoc();
+            return is_array($row) ? $row : null;
+        } catch (\Throwable $e) {
+            return null;
+        }
     }
 
     public function findByUserIssuer(int $userId, string $issuer): ?array
@@ -64,9 +68,13 @@ final class KeycloakOidcLinksRepository
             ->where($this->db->quoteName('user_id') . ' = ' . (int) $userId)
             ->where($this->db->quoteName('issuer') . ' = ' . $this->db->quote($issuer));
 
-        $this->db->setQuery($query);
-        $row = $this->db->loadAssoc();
-        return is_array($row) ? $row : null;
+        try {
+            $this->db->setQuery($query);
+            $row = $this->db->loadAssoc();
+            return is_array($row) ? $row : null;
+        } catch (\Throwable $e) {
+            return null;
+        }
     }
 
     public function createLink(int $userId, string $issuer, string $sub, ?string $email, bool $emailVerified, ?string $realm, string $nowUtc): bool

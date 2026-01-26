@@ -181,12 +181,8 @@ final class KeycloakOidc extends CMSPlugin
             }
 
             $auto = '';
-            if (!$kcLocal) {
+            if (!$allowLocal && !$kcLocal) {
                 $auto = '<script>(function(){try{setTimeout(function(){window.location.href=' . json_encode($keycloakLoginUrl) . ';},250);}catch(e){}})();</script>';
-            }
-
-            if ($allowLocal && $kcLocal) {
-                $auto = '';
             }
 
             $injection = $buttons . $auto;
@@ -813,7 +809,12 @@ final class KeycloakOidc extends CMSPlugin
         $linksRepo = new KeycloakOidcLinksRepository(Factory::getDbo());
         $nowUtc = gmdate('Y-m-d H:i:s');
 
-        $link = $linksRepo->findByIssuerSub($issuerNorm, $sub);
+        try {
+            $link = $linksRepo->findByIssuerSub($issuerNorm, $sub);
+        } catch (\Throwable $e) {
+            $this->auditLog('DB_ERROR links_lookup_failed issuer_fp=' . $issuerFp . ' sub_fp=' . $subFp . ' message=' . $e->getMessage());
+            $this->respondText('OIDC login failed: database schema missing (#__keycloak_oidc_links). Install/update the plugin to create the table.', 500);
+        }
         if (is_array($link)) {
             $userId = (int) ($link['user_id'] ?? 0);
             $user = $userId > 0 ? Factory::getUser($userId) : null;
@@ -880,7 +881,12 @@ final class KeycloakOidc extends CMSPlugin
                     $this->respondAuthDenied();
                 }
 
-                $existingUserIssuerLink = $linksRepo->findByUserIssuer($userId, $issuerNorm);
+                try {
+                    $existingUserIssuerLink = $linksRepo->findByUserIssuer($userId, $issuerNorm);
+                } catch (\Throwable $e) {
+                    $this->auditLog('DB_ERROR links_find_user_issuer_failed issuer_fp=' . $issuerFp . ' sub_fp=' . $subFp . ' user_id=' . (int) $userId . ' message=' . $e->getMessage());
+                    $this->respondText('OIDC login failed: database schema missing (#__keycloak_oidc_links). Install/update the plugin to create the table.', 500);
+                }
                 if (is_array($existingUserIssuerLink)) {
                     $existingSub = trim((string) ($existingUserIssuerLink['sub'] ?? ''));
                     if ($existingSub !== '' && $existingSub !== $sub) {
@@ -889,13 +895,24 @@ final class KeycloakOidc extends CMSPlugin
                     }
                 }
 
-                $created = $linksRepo->createLink($userId, $issuerNorm, $sub, $email, true, $realm !== '' ? $realm : null, $nowUtc);
-                if (!$created) {
-                    $link2 = $linksRepo->findByIssuerSub($issuerNorm, $sub);
-                    if (!is_array($link2)) {
-                        $this->auditLog('LINK_DENY reason=failed_to_create_link issuer_fp=' . $issuerFp . ' sub_fp=' . $subFp . ' user_id=' . (int) $userId);
-                        $this->respondAuthDeniedContactAdmin();
-                    }
+                try {
+                    $created = $linksRepo->createLink(
+                        (int) $userId,
+                        $issuerNorm,
+                        $sub,
+                        $email !== '' ? $email : null,
+                        $emailVerified,
+                        $realm !== '' ? $realm : null,
+                        $nowUtc
+                    );
+                } catch (\Throwable $e) {
+                    $this->auditLog('DB_ERROR links_update_failed issuer_fp=' . $issuerFp . ' sub_fp=' . $subFp . ' message=' . $e->getMessage());
+                    $this->respondText('OIDC login failed: database schema missing (#__keycloak_oidc_links). Install/update the plugin to create the table.', 500);
+                }
+
+                if (empty($created)) {
+                    $this->auditLog('LINK_DENY reason=failed_to_create_link issuer_fp=' . $issuerFp . ' sub_fp=' . $subFp . ' user_id=' . (int) $userId);
+                    $this->respondAuthDeniedContactAdmin();
                 }
 
                 $this->auditLog('LINK_CREATE user_id=' . (int) $userId . ' issuer_fp=' . $issuerFp . ' sub_fp=' . $subFp);
@@ -933,7 +950,12 @@ final class KeycloakOidc extends CMSPlugin
 
                 $user = Factory::getUser($userId);
 
-                $created = $linksRepo->createLink($userId, $issuerNorm, $sub, $email, true, $realm !== '' ? $realm : null, $nowUtc);
+                try {
+                    $created = $linksRepo->createLink($userId, $issuerNorm, $sub, $email, true, $realm !== '' ? $realm : null, $nowUtc);
+                } catch (\Throwable $e) {
+                    $this->auditLog('DB_ERROR links_create_failed issuer_fp=' . $issuerFp . ' sub_fp=' . $subFp . ' user_id=' . (int) $userId . ' message=' . $e->getMessage());
+                    $this->respondText('OIDC login failed: database schema missing (#__keycloak_oidc_links). Install/update the plugin to create the table.', 500);
+                }
                 if (!$created) {
                     $this->auditLog('LINK_DENY reason=failed_to_create_link issuer_fp=' . $issuerFp . ' sub_fp=' . $subFp . ' user_id=' . (int) $userId);
                     $this->respondAuthDeniedContactAdmin();
