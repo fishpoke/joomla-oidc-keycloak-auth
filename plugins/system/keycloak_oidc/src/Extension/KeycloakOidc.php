@@ -499,6 +499,8 @@ final class KeycloakOidc extends CMSPlugin
         $app = Factory::getApplication();
         $session = $app->getSession();
 
+        $encodedReturn = trim((string) $app->input->getString('return', ''));
+
         $issuer = trim((string) $this->params->get('issuer', ''));
         $clientId = trim((string) $this->params->get('client_id', ''));
         $scopes = trim((string) $this->params->get('scopes', 'openid profile email'));
@@ -539,6 +541,7 @@ final class KeycloakOidc extends CMSPlugin
         $session->set('kc_oidc_nonce', $nonce);
         $session->set('kc_oidc_issuer', $issuer);
         $session->set('kc_oidc_jit_attempted_for_state', null);
+        $session->set('kc_oidc_return', $encodedReturn !== '' ? $encodedReturn : null);
 
         if ($this->isDebugEnabled()) {
             $session->set('kc_oidc_host', (string) $app->input->server->getString('HTTP_HOST', ''));
@@ -963,9 +966,11 @@ final class KeycloakOidc extends CMSPlugin
             $session->set('kc_oidc_id_token', $idToken);
         }
 
+        $session->set('kc_oidc_issuer', null);
         $session->set('kc_oidc_state', null);
         $session->set('kc_oidc_nonce', null);
         $session->set('kc_oidc_jit_attempted_for_state', null);
+        $session->set('kc_oidc_return', null);
 
         $returnUrl = $this->getSafeReturnUrlFromRequest();
         $app->redirect($returnUrl !== '' ? $returnUrl : Uri::base());
@@ -1040,6 +1045,10 @@ final class KeycloakOidc extends CMSPlugin
     {
         $app = Factory::getApplication();
         $encoded = trim((string) $app->input->getString('return', ''));
+        if ($encoded === '') {
+            $session = $app->getSession();
+            $encoded = trim((string) $session->get('kc_oidc_return', ''));
+        }
         if ($encoded === '') {
             return '';
         }
@@ -1304,8 +1313,6 @@ final class KeycloakOidc extends CMSPlugin
 
     private function getRedirectUri(): string
     {
-        $app = Factory::getApplication();
-        $encodedReturn = trim((string) $app->input->getString('return', ''));
         $base = $this->getPublicBaseUrlForRedirect();
         $uri = Uri::getInstance($base);
         $uri->setPath(rtrim($uri->getPath(), '/') . '/index.php');
@@ -1315,9 +1322,6 @@ final class KeycloakOidc extends CMSPlugin
             'format' => 'raw',
             'task' => 'callback',
         ];
-        if ($encodedReturn !== '') {
-            $query['return'] = $encodedReturn;
-        }
         $uri->setQuery(http_build_query($query));
         return (string) $uri;
     }
