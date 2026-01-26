@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <extension type="plugin" group="system" method="upgrade">
   <name>plg_system_keycloak_oidc</name>
-  <version>0.5</version>
+  <version>0.5.1</version>
   <creationDate>2026-01-20</creationDate>
   <author>CLM Projekt</author>
   <description>PLG_SYSTEM_KEYCLOAK_OIDC_XML_DESCRIPTION</description>
@@ -25,6 +25,13 @@
   <config>
     <fields name="params">
       <fieldset name="basic" label="Basic">
+        <field
+          name="usage_notice"
+          type="note"
+          class="alert alert-info"
+          label="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_USAGE_NOTICE_LABEL"
+          description="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_USAGE_NOTICE_DESC"
+        />
         <field
           name="debug"
           type="radio"

@@ -3,7 +3,7 @@
     <name>MOD_KEYCLOAK_LOGIN</name>
     <author>CLM Projekt</author>
     <creationDate>2026-01-20</creationDate>
-    <version>0.5</version>
+    <version>0.5.1</version>
     <description>MOD_KEYCLOAK_LOGIN_XML_DESCRIPTION</description>
 
     <files>
@@ -25,6 +25,13 @@
     <config>
         <fields name="params" addfieldpath="modules/mod_keycloak_login/fields">
             <fieldset name="basic" label="MOD_KEYCLOAK_LOGIN_FIELDSET_BASIC">
+                <field
+                    name="logout_notice"
+                    type="note"
+                    class="alert alert-warning"
+                    label="MOD_KEYCLOAK_LOGIN_FIELD_LOGOUT_NOTICE_LABEL"
+                    description="MOD_KEYCLOAK_LOGIN_FIELD_LOGOUT_NOTICE_DESC"
+                />
                 <field
                     name="keycloak_base_url"
                     type="keycloakbaseurl"
