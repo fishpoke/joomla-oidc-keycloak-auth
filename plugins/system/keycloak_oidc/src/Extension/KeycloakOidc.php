@@ -1802,21 +1802,6 @@ final class KeycloakOidc extends CMSPlugin
             return $url;
         }
 
-        $allowDifferentHost = (bool) $this->params->get(
-            'allow_different_endpoint_host',
-            (bool) $this->params->get('static_allow_different_host', 0)
-        );
-        if (!$allowDifferentHost) {
-            if ($this->isDebugEnabled()) {
-                $this->debugLog('INTERNAL_BASE_IGNORED', 'keycloak_internal_base is set but allow_different_endpoint_host is disabled; not rewriting URL', [
-                    'internal_base' => $this->safeUrlForError($internalBase),
-                ]);
-            }
-            $hostHeader = null;
-            $forwarded = null;
-            return $url;
-        }
-
         if (!is_array($issuerParts) || ($issuerParts['host'] ?? '') === '') {
             $hostHeader = null;
             $forwarded = null;
@@ -1838,21 +1823,6 @@ final class KeycloakOidc extends CMSPlugin
             return $url;
         }
 
-        $allowedHosts = $this->parseAllowedHosts((string) $this->params->get(
-            'allowed_endpoint_hosts',
-            (string) $this->params->get('static_allowed_hosts', '')
-        ));
-        if ($allowedHosts === []) {
-            if ($this->isDebugEnabled()) {
-                $this->debugLog('INTERNAL_BASE_IGNORED', 'allow_different_endpoint_host is enabled but allowed_endpoint_hosts is empty; not rewriting URL', [
-                    'internal_base' => $this->safeUrlForError($internalBase),
-                ]);
-            }
-            $hostHeader = null;
-            $forwarded = null;
-            return $url;
-        }
-
         $internalParts = parse_url(rtrim($internalBase, '/'));
         if (!is_array($internalParts) || ($internalParts['scheme'] ?? '') === '' || ($internalParts['host'] ?? '') === '') {
             $hostHeader = null;
@@ -1864,6 +1834,20 @@ final class KeycloakOidc extends CMSPlugin
         $internalScheme = strtolower((string) ($internalParts['scheme'] ?? ''));
         $internalPort = isset($internalParts['port']) ? (int) $internalParts['port'] : ($internalScheme === 'https' ? 443 : 80);
         $internalHostport = $internalHost . ':' . (string) $internalPort;
+
+        $allowedHosts = $this->parseAllowedHosts((string) $this->params->get(
+            'allowed_endpoint_hosts',
+            (string) $this->params->get('static_allowed_hosts', '')
+        ));
+        if ($allowedHosts === []) {
+            $allowedHosts = [$internalHost, $internalHostport];
+            if ($this->isDebugEnabled()) {
+                $this->debugLog('INTERNAL_BASE_ALLOWLIST_IMPLICIT', 'allowed_endpoint_hosts is empty; implicitly allowing internal base host for rewrite', [
+                    'internal_base' => $this->safeUrlForError($internalBase),
+                    'internal_hostport' => $internalHostport,
+                ]);
+            }
+        }
 
         if (!in_array($internalHostport, $allowedHosts, true) && !in_array($internalHost, $allowedHosts, true)) {
             if ($this->isDebugEnabled()) {
