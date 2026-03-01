@@ -1436,7 +1436,7 @@ SQL;
         return $discovery;
     }
 
-    private function resolveEndpoints(): EndpointSet
+    private function resolveEndpoints(bool $forceRefresh = false): EndpointSet
     {
         try {
             $resolver = new EndpointResolver(
@@ -1446,7 +1446,7 @@ SQL;
                     $this->auditLog($message);
                 }
             );
-            return $resolver->resolve();
+            return $resolver->resolve($forceRefresh);
         } catch (\Throwable $e) {
             $mode = strtolower(trim((string) $this->params->get('endpoint_mode', 'discovery')));
             $issuer = $this->normalizeIssuer((string) $this->params->get('issuer', ''));
@@ -1479,17 +1479,16 @@ SQL;
             $this->respondText('Forbidden.', 403);
         }
 
+        $forceRefresh = $this->isDebugEnabled() && ((string) $app->input->getString('oidc_refresh', '') === '1');
+
+        $results = [];
+        $allOk = true;
+        $endpoints = null;
+
         try {
-            $endpoints = $this->resolveEndpoints();
-            $jwks = $this->httpGetJson($endpoints->getJwksUri(), ['Accept: application/json']);
-
-            $keyCount = 0;
-            if (isset($jwks['keys']) && is_array($jwks['keys'])) {
-                $keyCount = count($jwks['keys']);
-            }
-
-            $out = [
-                'ok' => true,
+            $endpoints = $this->resolveEndpoints($forceRefresh);
+            $results['discovery'] = [
+                'status' => 'OK',
                 'mode' => $endpoints->getMode(),
                 'issuer' => $endpoints->getIssuer(),
                 'endpoints' => [
@@ -1499,23 +1498,52 @@ SQL;
                     'userinfo_endpoint' => $endpoints->getUserinfoEndpoint(),
                     'end_session_endpoint' => $endpoints->getEndSessionEndpoint(),
                 ],
-                'jwks' => [
-                    'key_count' => $keyCount,
-                ],
-                'tls' => [
-                    'tls_verify' => (bool) $this->params->get('tls_verify', 1),
-                    'tls_ca_bundle_path_set' => trim((string) $this->params->get('tls_ca_bundle_path', '')) !== '',
-                    'tls_insecure_skip_verify' => (bool) $this->params->get('tls_insecure_skip_verify', 0),
-                ],
             ];
-
-            $this->respondJson($out, 200);
         } catch (\Throwable $e) {
-            $this->respondJson([
-                'ok' => false,
+            $allOk = false;
+            $results['discovery'] = [
+                'status' => 'FAIL',
                 'error' => $this->redactSecrets((string) $e->getMessage()),
-            ], 500);
+            ];
         }
+
+        if ($endpoints !== null && $endpoints->getJwksUri() !== '') {
+            try {
+                $jwks = $this->httpGetJson($endpoints->getJwksUri(), ['Accept: application/json']);
+                $keyCount = isset($jwks['keys']) && is_array($jwks['keys']) ? count($jwks['keys']) : 0;
+                $results['jwks'] = [
+                    'status' => 'OK',
+                    'key_count' => $keyCount,
+                ];
+            } catch (\Throwable $e) {
+                $allOk = false;
+                $results['jwks'] = [
+                    'status' => 'FAIL',
+                    'error' => $this->redactSecrets((string) $e->getMessage()),
+                ];
+            }
+        } else {
+            $results['jwks'] = ['status' => 'SKIP', 'reason' => 'no jwks_uri'];
+        }
+
+        if ($endpoints !== null && $endpoints->getUserinfoEndpoint() !== '') {
+            $results['userinfo'] = ['status' => 'OK', 'url' => $endpoints->getUserinfoEndpoint()];
+        } else {
+            $results['userinfo'] = ['status' => 'SKIP', 'reason' => 'no userinfo_endpoint'];
+        }
+
+        $out = [
+            'ok' => $allOk,
+            'force_refresh' => $forceRefresh,
+            'checks' => $results,
+            'tls' => [
+                'tls_verify' => (bool) $this->params->get('tls_verify', 1),
+                'tls_ca_bundle_path_set' => trim((string) $this->params->get('tls_ca_bundle_path', '')) !== '',
+                'tls_insecure_skip_verify' => (bool) $this->params->get('tls_insecure_skip_verify', 0),
+            ],
+        ];
+
+        $this->respondJson($out, $allOk ? 200 : 500);
     }
 
     private function respondJson(array $data, int $statusCode): void

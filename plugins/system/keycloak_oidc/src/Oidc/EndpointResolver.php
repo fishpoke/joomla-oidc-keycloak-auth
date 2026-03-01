@@ -27,7 +27,7 @@ final class EndpointResolver
 
     private Registry $params;
 
-    public function resolve(): EndpointSet
+    public function resolve(bool $forceRefresh = false): EndpointSet
     {
         $mode = strtolower(trim((string) $this->params->get('endpoint_mode', self::MODE_DISCOVERY)));
         if ($mode !== self::MODE_STATIC) {
@@ -42,8 +42,18 @@ final class EndpointResolver
         $cacheKey = $this->getCacheKey($mode);
         $cache = $this->getCache();
 
+        if ($forceRefresh) {
+            try {
+                $cache->remove($cacheKey, 'plg_system_keycloak_oidc');
+            } catch (\Throwable $e) {
+            }
+            ($this->log)('DISCOVERY cache force-refresh mode=' . $mode . ' issuer=' . $this->safeUrl($issuer));
+        }
+
+        $cacheHit = true;
         $resolved = $cache->get(
-            function () use ($mode, $issuer): array {
+            function () use ($mode, $issuer, &$cacheHit): array {
+                $cacheHit = false;
                 return $mode === self::MODE_STATIC ? $this->resolveStatic($issuer) : $this->resolveDiscovery($issuer);
             },
             [],
@@ -56,6 +66,7 @@ final class EndpointResolver
 
         ($this->log)(
             'RESOLVE endpoints mode=' . $mode
+            . ' cache=' . ($cacheHit ? 'hit' : 'miss')
             . ' issuer=' . $this->safeUrl($issuer)
             . ' auth=' . $this->safeUrl((string) $resolved['authorization_endpoint'])
             . ' token=' . $this->safeUrl((string) $resolved['token_endpoint'])
@@ -278,7 +289,7 @@ final class EndpointResolver
         $factory = $container->get(CacheControllerFactoryInterface::class);
         $cache = $factory->createCacheController('callback', ['defaultgroup' => 'plg_system_keycloak_oidc']);
         $cache->setCaching(true);
-        $cache->setLifeTime(600);
+        $cache->setLifeTime(3600);
 
         return $cache;
     }

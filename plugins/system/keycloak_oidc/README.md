@@ -2,7 +2,9 @@
 
 ## Overview
 
-This plugin implements an OIDC (OAuth2) login flow against Keycloak.
+This plugin implements a provider-agnostic OIDC (OpenID Connect) login flow for Joomla 5.
+It works with any OIDC-compliant provider: Keycloak, authentik, Auth0, Okta, Microsoft Entra ID, etc.
+Endpoints are resolved automatically via OIDC Discovery (recommended) or can be set manually (static mode).
 
 ## Account linking (database)
 
@@ -14,7 +16,7 @@ This is the only source of truth for linking.
 
 Key fields:
 
-- `issuer` + `sub` uniquely identify the Keycloak user
+- `issuer` + `sub` uniquely identify the OIDC user
 - `user_id` points to the Joomla user
 - `email` / `email_verified` are stored for auditing/debugging and updated on login if provided
 - `last_login` is updated on every successful login
@@ -35,7 +37,7 @@ Static endpoints exist for setups where `/.well-known/openid-configuration` is n
 
 ### 1) Discovery (default)
 
-- Set **Issuer** to the Keycloak realm issuer URL.
+- Set **Issuer** to your OIDC provider's issuer URL.
 - The plugin loads discovery from:
 
 `{issuer}/.well-known/openid-configuration`
@@ -53,7 +55,7 @@ Optional:
 
 ### 2) Static endpoints
 
-Use when discovery fails (e.g. issuer host is not where Keycloak is reachable).
+Use when discovery fails (e.g. issuer host is not where the OIDC provider is reachable).
 
 Required fields:
 
@@ -84,17 +86,22 @@ This reduces security and should be used only if you understand the endpoint-mix
 - If you use a custom CA, set **TLS CA bundle path**.
 - Disabling TLS verification is insecure and should only be used temporarily.
 
-## Diagnostics (admin only)
+## Diagnostics / selfTest (admin only)
 
 Diagnostics endpoint (administrator only):
 
 `/administrator/index.php?option=com_ajax&plugin=keycloak_oidc&format=raw&task=diagnostics`
 
-It returns JSON with:
+It returns JSON with individual pass/fail checks:
 
-- resolved endpoints
-- JWKS fetch test (key count)
-- TLS settings summary
+- **discovery**: resolved endpoints (mode, issuer, all endpoint URLs)
+- **jwks**: JWKS fetch test (key count)
+- **userinfo**: userinfo endpoint availability
+- **tls**: TLS settings summary
+
+Force-refresh (bypass cache, requires debug=1):
+
+`&oidc_refresh=1`
 
 No token exchange is performed.
 
@@ -148,48 +155,31 @@ Emergency disable (database):
 
 `UPDATE #__extensions SET enabled=0 WHERE element='keycloak_oidc' AND folder='system';`
 
-## Typical Keycloak Endpoints
+## Provider examples
 
-For realm `CLM`:
+### Keycloak
 
-- Authorization:
-  `/realms/CLM/protocol/openid-connect/auth`
-- Token:
-  `/realms/CLM/protocol/openid-connect/token`
-- JWKS:
-  `/realms/CLM/protocol/openid-connect/certs`
-- Userinfo:
-  `/realms/CLM/protocol/openid-connect/userinfo`
-- Logout / end-session:
-  `/realms/CLM/protocol/openid-connect/logout`
+- Issuer: `https://keycloak.example/realms/myrealm`
+- Discovery: `https://keycloak.example/realms/myrealm/.well-known/openid-configuration`
 
-## Example setup for port mapping (6364)
+### authentik
 
-If Keycloak is reachable as `https://chessleaguemanager.org:6364` but discovery on `https://keycloak.chessleaguemanager.org` does not work, you have two options:
+- Issuer: `https://authentik.example/application/o/myapp/`
+- Discovery: `https://authentik.example/application/o/myapp/.well-known/openid-configuration`
 
-### Option A (recommended): make Issuer match the reachable base
+### Auth0
 
-Set Issuer to the value Keycloak uses in tokens (check the `iss` claim). If Keycloak is configured to use the public URL including port mapping, set:
+- Issuer: `https://login.example.auth0.com/`
+- Discovery: `https://login.example.auth0.com/.well-known/openid-configuration`
 
-- Issuer: `https://chessleaguemanager.org:6364/realms/CLM`
-- Endpoint mode: Discovery
+### Static endpoints (port mapping example)
 
-### Option B: Issuer claim differs from reachable endpoints
-
-If the token `iss` is `https://keycloak.chessleaguemanager.org/realms/CLM` but Keycloak is only reachable via `https://chessleaguemanager.org:6364`, use static endpoints:
+If the token `iss` differs from the reachable host (e.g. port mapping), use static mode:
 
 - Endpoint mode: Static endpoints
-- Issuer: `https://keycloak.chessleaguemanager.org/realms/CLM` (must match `iss`)
-- Authorization endpoint: `https://chessleaguemanager.org:6364/realms/CLM/protocol/openid-connect/auth`
-- Token endpoint: `https://chessleaguemanager.org:6364/realms/CLM/protocol/openid-connect/token`
-- JWKS URI: `https://chessleaguemanager.org:6364/realms/CLM/protocol/openid-connect/certs`
-- (Optional) Userinfo endpoint: `https://chessleaguemanager.org:6364/realms/CLM/protocol/openid-connect/userinfo`
-- (Optional) End session endpoint: `https://chessleaguemanager.org:6364/realms/CLM/protocol/openid-connect/logout`
-
-Then:
-
-- Enable **Allow different endpoint host**
-- Allowed endpoint hosts: `chessleaguemanager.org:6364`
+- Issuer: must match the `iss` claim in the ID token exactly
+- Copy authorization_endpoint, token_endpoint, jwks_uri from the provider's discovery document
+- Enable **Allow different endpoint host** and set **Allowed endpoint hosts** to the reachable host:port
 
 ## Security Notes
 
