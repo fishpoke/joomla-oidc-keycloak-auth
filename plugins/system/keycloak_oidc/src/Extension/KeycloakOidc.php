@@ -2160,6 +2160,55 @@ SQL;
         return (int) $db->loadResult();
     }
 
+    public function onUserAfterDelete(array $user, bool $success, ?string $msg = null): void
+    {
+        if (!$success) {
+            return;
+        }
+
+        $userId = (int) ($user['id'] ?? 0);
+        if ($userId <= 0) {
+            return;
+        }
+
+        try {
+            $db = Factory::getDbo();
+
+            $query = $db->getQuery(true)
+                ->select('COUNT(*)')
+                ->from($db->quoteName('#__keycloak_oidc_links'))
+                ->where($db->quoteName('user_id') . ' = ' . $userId);
+            $db->setQuery($query);
+            $count = (int) $db->loadResult();
+
+            if ($count === 0) {
+                return;
+            }
+
+            $query = $db->getQuery(true)
+                ->delete($db->quoteName('#__keycloak_oidc_links'))
+                ->where($db->quoteName('user_id') . ' = ' . $userId);
+            $db->setQuery($query);
+            $db->execute();
+
+            $this->auditLog('LINK_CLEANUP user_id=' . $userId . ' links_deleted=' . $count);
+
+            if ($this->isDebugEnabled()) {
+                $this->debugLog('LINK_CLEANUP', 'Deleted OIDC links for removed user', [
+                    'user_id' => $userId,
+                    'links_deleted' => $count,
+                ]);
+            }
+        } catch (\Throwable $e) {
+            if ($this->isDebugEnabled()) {
+                $this->debugLog('LINK_CLEANUP_ERROR', 'Failed to delete OIDC links for removed user', [
+                    'user_id' => $userId,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+    }
+
     private function respondText(string $message, int $statusCode): void
     {
         http_response_code($statusCode);

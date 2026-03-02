@@ -1,10 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <extension type="plugin" group="system" method="upgrade">
   <name>plg_system_keycloak_oidc</name>
-  <version>0.7.0</version>
+  <version>0.7.1</version>
   <creationDate>2026-01-20</creationDate>
   <author>CLM Projekt</author>
   <description>PLG_SYSTEM_KEYCLOAK_OIDC_XML_DESCRIPTION
+v0.7.1: onUserAfterDelete – auto-cleanup OIDC links when Joomla user is deleted.
 v0.7.0: OIDC Discovery Support - provider-agnostic (Keycloak, authentik, Auth0, Okta etc.), 1h cache TTL, selfTest diagnostics.</description>
 
   <scriptfile>script.php</scriptfile>
