@@ -1,0 +1,215 @@
+<?xml version="1.0" encoding="utf-8"?>
+<extension type="module" client="site" method="upgrade">
+    <name>MOD_OIDC_LOGIN</name>
+    <author>CLM Projekt</author>
+    <creationDate>2026-03-02</creationDate>
+    <version>1.0.0</version>
+    <description>MOD_OIDC_LOGIN_XML_DESCRIPTION</description>
+
+    <files>
+        <filename module="mod_oidc_login">mod_oidc_login.php</filename>
+        <filename>helper.php</filename>
+        <folder>tmpl</folder>
+        <folder>language</folder>
+        <folder>services</folder>
+    </files>
+
+    <languages>
+        <language tag="en-GB">language/en-GB/en-GB.mod_oidc_login.ini</language>
+        <language tag="en-GB">language/en-GB/en-GB.mod_oidc_login.sys.ini</language>
+        <language tag="de-DE">language/de-DE/de-DE.mod_oidc_login.ini</language>
+        <language tag="de-DE">language/de-DE/de-DE.mod_oidc_login.sys.ini</language>
+    </languages>
+
+    <config>
+        <fields name="params">
+            <fieldset name="basic" label="MOD_OIDC_LOGIN_FIELDSET_BASIC">
+
+                <field
+                    name="provider_name"
+                    type="text"
+                    default="OIDC"
+                    label="MOD_OIDC_LOGIN_FIELD_PROVIDER_NAME_LABEL"
+                    description="MOD_OIDC_LOGIN_FIELD_PROVIDER_NAME_DESC"
+                />
+
+                <field
+                    name="provider_base_url"
+                    type="url"
+                    default=""
+                    label="MOD_OIDC_LOGIN_FIELD_PROVIDER_BASE_URL_LABEL"
+                    description="MOD_OIDC_LOGIN_FIELD_PROVIDER_BASE_URL_DESC"
+                />
+
+                <field
+                    name="login_button_text"
+                    type="text"
+                    default="Mit {provider} anmelden"
+                    label="MOD_OIDC_LOGIN_FIELD_LOGIN_BUTTON_TEXT_LABEL"
+                    description="MOD_OIDC_LOGIN_FIELD_LOGIN_BUTTON_TEXT_DESC"
+                />
+
+                <field
+                    name="logout_button_text"
+                    type="text"
+                    default=""
+                    label="MOD_OIDC_LOGIN_FIELD_LOGOUT_BUTTON_TEXT_LABEL"
+                    description="MOD_OIDC_LOGIN_FIELD_LOGOUT_BUTTON_TEXT_DESC"
+                />
+
+                <field
+                    name="context"
+                    type="list"
+                    default="auto"
+                    label="MOD_OIDC_LOGIN_FIELD_CONTEXT_LABEL"
+                    description="MOD_OIDC_LOGIN_FIELD_CONTEXT_DESC"
+                >
+                    <option value="auto">MOD_OIDC_LOGIN_CONTEXT_AUTO</option>
+                    <option value="site">MOD_OIDC_LOGIN_CONTEXT_SITE</option>
+                    <option value="admin">MOD_OIDC_LOGIN_CONTEXT_ADMIN</option>
+                </field>
+
+                <field
+                    name="return_url"
+                    type="url"
+                    default=""
+                    label="MOD_OIDC_LOGIN_FIELD_RETURN_URL_LABEL"
+                    description="MOD_OIDC_LOGIN_FIELD_RETURN_URL_DESC"
+                />
+            </fieldset>
+
+            <fieldset name="links" label="MOD_OIDC_LOGIN_FIELDSET_LINKS">
+
+                <field
+                    name="show_password_reset"
+                    type="radio"
+                    layout="joomla.form.field.radio.switcher"
+                    default="1"
+                    label="MOD_OIDC_LOGIN_FIELD_SHOW_PASSWORD_RESET_LABEL"
+                    description="MOD_OIDC_LOGIN_FIELD_SHOW_PASSWORD_RESET_DESC"
+                >
+                    <option value="0">JDISABLED</option>
+                    <option value="1">JENABLED</option>
+                </field>
+
+                <field
+                    name="url_password_reset"
+                    type="text"
+                    default=""
+                    label="MOD_OIDC_LOGIN_FIELD_URL_PASSWORD_RESET_LABEL"
+                    description="MOD_OIDC_LOGIN_FIELD_URL_PASSWORD_RESET_DESC"
+                    showon="show_password_reset:1"
+                />
+
+                <field
+                    name="show_registration"
+                    type="radio"
+                    layout="joomla.form.field.radio.switcher"
+                    default="1"
+                    label="MOD_OIDC_LOGIN_FIELD_SHOW_REGISTRATION_LABEL"
+                    description="MOD_OIDC_LOGIN_FIELD_SHOW_REGISTRATION_DESC"
+                >
+                    <option value="0">JDISABLED</option>
+                    <option value="1">JENABLED</option>
+                </field>
+
+                <field
+                    name="url_registration"
+                    type="text"
+                    default=""
+                    label="MOD_OIDC_LOGIN_FIELD_URL_REGISTRATION_LABEL"
+                    description="MOD_OIDC_LOGIN_FIELD_URL_REGISTRATION_DESC"
+                    showon="show_registration:1"
+                />
+
+                <field
+                    name="show_account_link"
+                    type="radio"
+                    layout="joomla.form.field.radio.switcher"
+                    default="1"
+                    label="MOD_OIDC_LOGIN_FIELD_SHOW_ACCOUNT_LINK_LABEL"
+                    description="MOD_OIDC_LOGIN_FIELD_SHOW_ACCOUNT_LINK_DESC"
+                >
+                    <option value="0">JDISABLED</option>
+                    <option value="1">JENABLED</option>
+                </field>
+
+                <field
+                    name="url_account"
+                    type="text"
+                    default=""
+                    label="MOD_OIDC_LOGIN_FIELD_URL_ACCOUNT_LABEL"
+                    description="MOD_OIDC_LOGIN_FIELD_URL_ACCOUNT_DESC"
+                    showon="show_account_link:1"
+                />
+
+                <field
+                    name="show_info_link"
+                    type="radio"
+                    layout="joomla.form.field.radio.switcher"
+                    default="0"
+                    label="MOD_OIDC_LOGIN_FIELD_SHOW_INFO_LINK_LABEL"
+                    description="MOD_OIDC_LOGIN_FIELD_SHOW_INFO_LINK_DESC"
+                >
+                    <option value="0">JDISABLED</option>
+                    <option value="1">JENABLED</option>
+                </field>
+
+                <field
+                    name="info_article_id"
+                    type="modal_article"
+                    default="0"
+                    label="MOD_OIDC_LOGIN_FIELD_INFO_ARTICLE_ID_LABEL"
+                    description="MOD_OIDC_LOGIN_FIELD_INFO_ARTICLE_ID_DESC"
+                    showon="show_info_link:1"
+                />
+
+                <field
+                    name="info_link_text"
+                    type="text"
+                    default=""
+                    label="MOD_OIDC_LOGIN_FIELD_INFO_LINK_TEXT_LABEL"
+                    description="MOD_OIDC_LOGIN_FIELD_INFO_LINK_TEXT_DESC"
+                    showon="show_info_link:1"
+                />
+
+                <field
+                    name="info_link_color"
+                    type="color"
+                    default=""
+                    label="MOD_OIDC_LOGIN_FIELD_INFO_LINK_COLOR_LABEL"
+                    description="MOD_OIDC_LOGIN_FIELD_INFO_LINK_COLOR_DESC"
+                    showon="show_info_link:1"
+                />
+            </fieldset>
+
+            <fieldset name="logout" label="MOD_OIDC_LOGIN_FIELDSET_LOGOUT">
+
+                <field
+                    name="provider_logout_checkbox_enabled"
+                    type="radio"
+                    layout="joomla.form.field.radio.switcher"
+                    default="0"
+                    label="MOD_OIDC_LOGIN_FIELD_PROVIDER_LOGOUT_CHECKBOX_ENABLED_LABEL"
+                    description="MOD_OIDC_LOGIN_FIELD_PROVIDER_LOGOUT_CHECKBOX_ENABLED_DESC"
+                >
+                    <option value="0">JDISABLED</option>
+                    <option value="1">JENABLED</option>
+                </field>
+
+                <field
+                    name="provider_logout_checkbox_default"
+                    type="radio"
+                    layout="joomla.form.field.radio.switcher"
+                    default="0"
+                    label="MOD_OIDC_LOGIN_FIELD_PROVIDER_LOGOUT_CHECKBOX_DEFAULT_LABEL"
+                    description="MOD_OIDC_LOGIN_FIELD_PROVIDER_LOGOUT_CHECKBOX_DEFAULT_DESC"
+                    showon="provider_logout_checkbox_enabled:1"
+                >
+                    <option value="0">JNO</option>
+                    <option value="1">JYES</option>
+                </field>
+            </fieldset>
+        </fields>
+    </config>
+</extension>
