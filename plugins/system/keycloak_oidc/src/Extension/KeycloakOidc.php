@@ -170,13 +170,17 @@ final class KeycloakOidc extends CMSPlugin
                 return;
             }
 
+            // Konfigurierbare Button-Beschriftungen
+            $labelSso   = $this->params->get('button_label_sso', 'Login with Authentik');
+            $labelLocal = $this->params->get('button_label_local', 'lokal anmelden');
+
             $buttons = '<div class="mb-3 kc_oidc_backend_login" id="kc_oidc_backend_login">'
-                . '<a class="btn btn-primary w-100" href="' . htmlspecialchars($keycloakLoginUrl, ENT_QUOTES, 'UTF-8') . '">Login with Keycloak</a>'
+                . '<a class="btn btn-primary w-100" href="' . htmlspecialchars($keycloakLoginUrl, ENT_QUOTES, 'UTF-8') . '">' . htmlspecialchars($labelSso, ENT_QUOTES, 'UTF-8') . '</a>'
                 . '</div>';
 
             if ($allowLocal) {
                 $buttons .= '<div class="mb-3">'
-                    . '<a class="btn btn-outline-secondary w-100" href="' . htmlspecialchars($localUrl, ENT_QUOTES, 'UTF-8') . '">lokal anmelden</a>'
+                    . '<a class="btn btn-outline-secondary w-100" href="' . htmlspecialchars($localUrl, ENT_QUOTES, 'UTF-8') . '">' . htmlspecialchars($labelLocal, ENT_QUOTES, 'UTF-8') . '</a>'
                     . '</div>';
             }
 
@@ -1315,7 +1319,6 @@ final class KeycloakOidc extends CMSPlugin
         return true;
     }
 
-
     private function auditLog(string $message): void
     {
         try {
@@ -1629,7 +1632,7 @@ SQL;
             throw new \RuntimeException('Failed to initialize HTTP client.');
         }
 
-	    $responseHeaders = [];
+        $responseHeaders = [];
 
         $effectiveHeaders = $headers;
         if ($hostHeader !== null && $hostHeader !== '') {
@@ -1665,22 +1668,22 @@ SQL;
         if ($wantCertInfo) {
             curl_setopt($ch, CURLOPT_CERTINFO, true);
         }
-	    curl_setopt(
-	        $ch,
-	        CURLOPT_HEADERFUNCTION,
-	        static function ($ch, string $headerLine) use (&$responseHeaders): int {
-	            $len = strlen($headerLine);
-	            $parts = explode(':', $headerLine, 2);
-	            if (count($parts) === 2) {
-	                $name = strtolower(trim($parts[0]));
-	                $value = trim($parts[1]);
-	                if ($name !== '') {
-	                    $responseHeaders[$name][] = $value;
-	                }
-	            }
-	            return $len;
-	        }
-	    );
+        curl_setopt(
+            $ch,
+            CURLOPT_HEADERFUNCTION,
+            static function ($ch, string $headerLine) use (&$responseHeaders): int {
+                $len = strlen($headerLine);
+                $parts = explode(':', $headerLine, 2);
+                if (count($parts) === 2) {
+                    $name = strtolower(trim($parts[0]));
+                    $value = trim($parts[1]);
+                    if ($name !== '') {
+                        $responseHeaders[$name][] = $value;
+                    }
+                }
+                return $len;
+            }
+        );
 
         if ($method === 'POST') {
             curl_setopt($ch, CURLOPT_POSTFIELDS, $body ?? '');
@@ -1836,9 +1839,9 @@ SQL;
                 }
             }
 
-	        if ($details === '' && isset($responseHeaders['www-authenticate'][0])) {
-	            $details = 'www-authenticate: ' . (string) $responseHeaders['www-authenticate'][0];
-	        }
+            if ($details === '' && isset($responseHeaders['www-authenticate'][0])) {
+                $details = 'www-authenticate: ' . (string) $responseHeaders['www-authenticate'][0];
+            }
 
             if ($details === '') {
                 $snippet = trim((string) $response);
@@ -2216,5 +2219,4 @@ SQL;
         echo $message;
         Factory::getApplication()->close();
     }
-    
 }

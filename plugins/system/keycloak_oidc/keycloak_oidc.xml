@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <extension type="plugin" group="system" method="upgrade">
   <name>plg_system_keycloak_oidc</name>
-  <version>0.8.0</version>
+  <version>0.8.1</version>
   <creationDate>2026-01-20</creationDate>
   <author>CLM Projekt</author>
   <description>PLG_SYSTEM_KEYCLOAK_OIDC_XML_DESCRIPTION
@@ -279,7 +279,22 @@ v0.7.0: OIDC Discovery Support - provider-agnostic (Keycloak, authentik, Auth0, 
           description="PLG_SYSTEM_KEYCLOAK_OIDC_FIELD_JOOMLA_PUBLIC_BASE_ADMIN_DESC"
         />
       </fieldset>
-
+      <fieldset name="ui" label="UI / Beschriftungen">
+        <field
+          name="button_label_sso"
+          type="text"
+          default="Login with Authentik"
+          label="SSO-Button Beschriftung"
+          description="Text des primären Login-Buttons (z.B. 'Login with Authentik')"
+        />
+        <field
+          name="button_label_local"
+          type="text"
+          default="lokal anmelden"
+          label="Lokaler Login Button"
+          description="Text des lokalen Anmelde-Buttons"
+        />
+      </fieldset>
       <fieldset name="jit" label="JIT">
         <field
           name="security_notice_jit"
